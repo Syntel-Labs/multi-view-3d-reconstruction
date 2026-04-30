@@ -137,6 +137,12 @@ celerybeat.pid
 # Environments
 .env
 .envrc
+.env.local
+.env.*.local
+.env.*
+!.env.example
+!**/.env.example
+.envrc
 .venv
 env/
 venv/
@@ -182,9 +188,9 @@ cython_debug/
 .abstra/
 
 # Visual Studio Code
-#  Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore 
+#  Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore
 #  that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
-#  and can be added to the global gitignore or merged into this file. However, if you prefer, 
+#  and can be added to the global gitignore or merged into this file. However, if you prefer,
 #  you could uncomment the following to ignore the entire vscode folder
 # .vscode/
 
@@ -200,8 +206,36 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+.claude/
 
 # Marimo
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Markdownlint
+.markdownlint.json
+
+# Node / pnpm / Vite
+node_modules/
+.pnpm-store/
+.vite/
+
+# Datasets binarios (no versionar imagenes ni archivos generados)
+data/*/images/
+data/*/matches.npz
+data/**/*.jpg
+data/**/*.jpeg
+data/**/*.png
+data/**/*.tif
+data/**/*.tiff
+
+# Outputs del pipeline
+outputs/*/cloud.ply
+outputs/*/metrics.json
+outputs/*/logs/
+outputs/**/*.ply
+
+# Logs exportados (07_export_logs.sh)
+logs/
+!logs/.gitkeep

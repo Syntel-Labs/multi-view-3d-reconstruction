@@ -2,9 +2,9 @@
 
 Documentos de referencia:
 
-- [Proyecto Final.pdf](./Proyecto%20Final.pdf)
-- [idea-1-reconstruccion-3d.md](./idea-1-reconstruccion-3d.md)
-- [referencias-curso.md](./referencias-curso.md)
+- [idea-1-3d-reconstruction.pdf](./idea-1-3d-reconstruction.pdf)
+- [idea-1-3d-reconstruction.md](./idea-1-3d-reconstruction.md)
+- [course-references.md](./course-references.md)
 
 ## Contexto
 
@@ -21,11 +21,11 @@ La especializacion por roles minimiza dependencias en la ejecucion, pero no debe
 
 Para garantizarlo se aplican estas politicas durante todo el periodo:
 
-- **Bitacora individual diaria**: cada persona registra en `docs/bitacoras/persona_<X>.md` que hizo, que probo, que decisiones tomo y por que. Una entrada por dia trabajado, con fecha. La bitacora alimenta directamente la seccion Resultados y Herramientas del documento final.
-- **Bitacora de prompts de IA**: cada persona registra en `docs/prompts/persona_<X>.md` los prompts a Claude/ChatGPT/Copilot que usaron, con el resultado y la justificacion del uso. Es requisito explicito de la rubrica (seccion Herramientas aplicadas del PDF).
+- **Bitacora individual diaria**: cada persona registra en `docs/journals/person-<X>.md` que hizo, que probo, que decisiones tomo y por que. Una entrada por dia trabajado, con fecha. La bitacora alimenta directamente la seccion Resultados y Herramientas del documento final.
+- **Bitacora de prompts de IA**: cada persona registra en `docs/prompts/person-<X>.md` los prompts a Claude/ChatGPT/Copilot que usaron, con el resultado y la justificacion del uso. Es requisito explicito de la rubrica (seccion Herramientas aplicadas del PDF).
 - **Cross-training semanal obligatorio**: cada lunes y jueves (ver cronograma) cada persona presenta a las otras 3 en 5 a 10 minutos: el modulo en el que esta trabajando, una demo en vivo y los conceptos clave que cualquiera deberia saber. Termina con preguntas abiertas para asegurar comprension.
 - **Pull requests con revision cruzada**: ningun PR se mergea sin revision de al menos otra persona del equipo (preferencia: el dueno del modulo aguas abajo). El revisor obliga a explicar el codigo, lo que dispersa conocimiento.
-- **FAQ compartida**: `docs/preguntas-faq.md` con las preguntas dificiles que podrian salir en la presentacion y la respuesta consensuada del equipo. Se actualiza despues de cada cross-training.
+- **FAQ compartida**: `docs/faq.md` con las preguntas dificiles que podrian salir en la presentacion y la respuesta consensuada del equipo. Se actualiza despues de cada cross-training.
 - **Documento final escrito por todos**: cada seccion tecnica la redacta el dueno del modulo y la revisan al menos otros 2 integrantes. D maqueta y unifica el estilo.
 
 ## Resumen de entregas
@@ -60,13 +60,13 @@ Para minimizar dependencias entre integrantes, el sistema se divide en 4 frentes
 
 Cada persona tiene **tres responsabilidades** independientes del rol:
 
-1. Mantener su bitacora en `docs/bitacoras/persona_<X>.md` con una entrada por dia.
-2. Mantener su log de prompts de IA en `docs/prompts/persona_<X>.md`.
+1. Mantener su bitacora en `docs/journals/person-<X>.md` con una entrada por dia.
+2. Mantener su log de prompts de IA en `docs/prompts/person-<X>.md`.
 3. Conducir su slot del cross-training semanal sobre los avances de su modulo.
 
 ### Persona A - Pipeline de vision (features y matching)
 
-- Modulos: `src/preprocess.py`, `src/features.py`, `src/matching.py`
+- Modulos: `backend/src/sfm_pipeline/preprocess.py`, `backend/src/sfm_pipeline/features.py`, `backend/src/sfm_pipeline/matching.py`
 - Base de partida: Lab 3 (SIFT/ORB + BFMatcher + Lowe ratio test).
 - Salida: archivo `data/<nombre>/matches.npz` con keypoints, descriptors y matches filtrados.
 - Dependencias externas: necesita datasets capturados por la persona D. Hasta tenerlos, prueba sobre fotos publicas.
@@ -74,7 +74,7 @@ Cada persona tiene **tres responsabilidades** independientes del rol:
 
 ### Persona B - Geometria 3D y reconstruccion
 
-- Modulos: `src/geometry.py`, `src/triangulation.py`, `src/sfm.py`, `src/export.py`, `src/metrics.py`.
+- Modulos: `backend/src/sfm_pipeline/geometry.py`, `backend/src/sfm_pipeline/triangulation.py`, `backend/src/sfm_pipeline/sfm.py`, `backend/src/sfm_pipeline/export.py`, `backend/src/sfm_pipeline/metrics.py`.
 - Base de partida: Lab 4 (DLT + RANSAC + SVD) adaptado al algoritmo de 8 puntos.
 - Salida: `outputs/<nombre>/cloud.ply` + `outputs/<nombre>/metrics.json`.
 - Dependencias externas: consume el `matches.npz` de A. Hasta entonces trabaja con datos sinteticos generados internamente.
@@ -82,16 +82,16 @@ Cada persona tiene **tres responsabilidades** independientes del rol:
 
 ### Persona C - Demo web
 
-- Modulos: `demo/backend/` (FastAPI) y `demo/frontend/` (Three.js).
+- Modulos: `backend/src/sfm_pipeline/api/` (FastAPI) y `frontend/` (Three.js + Vite).
 - Base de partida: ninguna del curso, requiere setup desde cero.
 - Salida: aplicacion local que recibe ZIP de fotos, ejecuta el pipeline y muestra la nube en el navegador con panel de metricas.
-- Dependencias externas: consume el CLI de B `python -m src.sfm --input <carpeta> --output <carpeta>`. Hasta entonces, mock que devuelve un `.ply` fijo (Stanford bunny u otro).
+- Dependencias externas: consume el CLI de B `python -m sfm_pipeline.cli --dataset <name>` (ver [`docs/contracts/cli-sfm.md`](contracts/cli-sfm.md)). Hasta entonces, mock que devuelve un `.ply` fijo (Stanford bunny u otro).
 - **Documentacion compartida**: redacta seccion 4.5 (Demo web) del documento final, conduce la demo en vivo de Slide 8 y responde Q&A sobre arquitectura cliente-servidor; **debe ser capaz de explicar a nivel conceptual cada etapa del pipeline core** aunque no la haya programado.
 
 ### Persona D - Datos, documentacion, metricas y comunicacion
 
 - Modulos: `data/*`, `docs/*`, slides, video, hojas de avance.
-- Base de partida: anotaciones del curso ya disponibles (ver [referencias-curso.md](./referencias-curso.md)).
+- Base de partida: anotaciones del curso ya disponibles (ver [course-references.md](./course-references.md)).
 - Salida: tres datasets, hojas 1 y 2, documento final, slides, video.
 - Dependencias externas: necesita el codigo de A, B y C terminado para documentar y las metricas reales para la seccion de resultados.
 - **Documentacion compartida**: redacta secciones 1 (Problema), 2 (Analisis), 3 (Propuesta), 6 (Resultados con figuras), 7 (Conclusion), 8 (Bibliografia). Maqueta documento, slides y video unificando estilo. Coordina las revisiones cruzadas. Conduce Slides 1 a 3 y 9 a 10 en la presentacion.
@@ -144,7 +144,7 @@ Archivo `data/<nombre>/matches.npz` con:
 ### CLI (B entrega a C)
 
 ```bash
-python -m src.sfm --input data/<nombre>/ --output outputs/<nombre>/
+python -m sfm_pipeline.cli --dataset <nombre>
 ```
 
 Genera los archivos del schema anterior. C lo invoca como subprocess desde el backend.
@@ -237,10 +237,10 @@ gantt
 
 | Fecha | Persona | Actividad |
 | :--- | :--- | :--- |
-| Mar 28 abr | A | Sembrar repo: `src/`, `data/`, `docs/`, `demo/`, `requirements.txt`, `.gitignore`, `README.md`. Configurar entorno Python con `opencv-contrib-python`, `numpy`, `open3d` |
+| Mar 28 abr | A | Sembrar repo: `backend/`, `frontend/`, `data/`, `docs/`, `scripts/`, `Makefile`, `docker-compose.yml`, `.env.example`. Configurar entorno Python (`backend/requirements.txt`) con `opencv-contrib-python`, `numpy`, `pyyaml` |
 | Mar 28 abr | B | Investigacion profunda: algoritmo de 8 puntos, descomposicion de $E$, triangulacion DLT. Generar par estereo sintetico para pruebas |
-| Mar 28 abr | C | Setup `demo/backend/` con FastAPI + endpoint `/health`. Setup `demo/frontend/` con Three.js mostrando un cubo |
-| Mar 28 abr | D | Captura dataset 1 (objeto pequeno 360 grados, 20 a 30 fotos con solapamiento $\geq 60\%$). Lectura de `referencias-curso.md` |
+| Mar 28 abr | C | Setup `backend/src/sfm_pipeline/api/` con FastAPI + endpoint `/health`. Setup `frontend/` con Three.js mostrando un cubo |
+| Mar 28 abr | D | Captura dataset 1 (objeto pequeno 360 grados, 20 a 30 fotos con solapamiento $\geq 60\%$). Lectura de `course-references.md` |
 | Mar 28 abr | Todos | Reunion para acordar contratos de interfaz (ver seccion correspondiente) |
 | Mie 29 abr | A | `preprocess.py` (Gaussiano + conversion a grises) y `features.py` (SIFT y ORB) probados sobre dataset 1 |
 | Mie 29 abr | B | `geometry.py`: estimacion de $F$ con `cv2.findFundamentalMat` + RANSAC validada sobre par sintetico |
@@ -256,7 +256,7 @@ gantt
 
 ### Avance funcional verificable
 
-- Pipeline SfM end-to-end por CLI: `python -m src.sfm --input data/objeto/ --output outputs/objeto/` produce `cloud.ply` + `metrics.json`.
+- Pipeline SfM end-to-end por CLI: `python -m sfm_pipeline.cli --dataset gamecube` produce `cloud.ply` + `metrics.json` en `outputs/gamecube/`.
 - Reprojection error medio $< 2$ px en al menos uno de los datasets.
 - Demo web invocando el pipeline real sobre dataset pre-cargado: subes ZIP, ves la nube en el navegador y un panel con metricas.
 - Dataset 3 (escena interior) capturado y subido.
@@ -276,7 +276,7 @@ gantt
 | Sab 2 may | D | Documento final: continuar Analisis |
 | Dom 3 may | A | Validar `matches.npz` sobre dataset 1 y 2. Entregar a B |
 | Dom 3 may | B | Consumir `matches.npz` real. Validar $F$, $E$ y pose en par real del dataset 1 |
-| Dom 3 may | C | Definir interfaz CLI con B. Adaptar backend para invocar `python -m src.sfm` cuando este disponible |
+| Dom 3 may | C | Definir interfaz CLI con B. Adaptar backend para invocar `python -m sfm_pipeline.cli` cuando este disponible |
 | Dom 3 may | D | Documento final: redactar Propuesta de solucion |
 | Lun 4 may | A | Soporte para dataset 3 cuando D lo entregue. Optimizacion de tiempos |
 | Lun 4 may | B | `triangulation.py` con `cv2.triangulatePoints` y `export.py` a `.ply`. Validar nube en Open3D sobre par real |
@@ -357,48 +357,56 @@ gantt
 ```text
 .
 ├── README.md
-├── requirements.txt
+├── Makefile
+├── docker-compose.yml
+├── .env.example
 ├── .gitignore
-├── data/
-│   ├── dataset_objeto/
-│   │   ├── images/
-│   │   ├── intrinsics.json
-│   │   └── matches.npz
-│   ├── dataset_fachada/
-│   └── dataset_interior/
-├── outputs/
-│   └── <nombre>/cloud.ply, metrics.json
-├── docs/
-│   ├── notas.md
-│   ├── referencias-curso.md
-│   ├── teoria/                 # copia de anotaciones relevantes
-│   ├── bitacoras/              # bitacora diaria por integrante
-│   │   ├── persona_a.md
-│   │   ├── persona_b.md
-│   │   ├── persona_c.md
-│   │   └── persona_d.md
-│   ├── prompts/                # log de prompts de IA por integrante
-│   │   ├── persona_a.md
-│   │   ├── persona_b.md
-│   │   ├── persona_c.md
-│   │   └── persona_d.md
-│   ├── preguntas-faq.md        # Q&A consensuada del equipo
-│   ├── hoja_1.pdf
-│   ├── hoja_2.pdf
-│   ├── slides.pdf
-│   └── documento_final.pdf
-├── src/
-│   ├── preprocess.py           # Persona A
-│   ├── features.py             # Persona A
-│   ├── matching.py             # Persona A
-│   ├── geometry.py             # Persona B
-│   ├── triangulation.py        # Persona B
-│   ├── export.py               # Persona B
-│   ├── metrics.py              # Persona B
-│   └── sfm.py                  # Persona B (CLI)
-└── demo/
-    ├── backend/                # Persona C
-    └── frontend/               # Persona C
+├── backend/                        # Python 3.12 + OpenCV + FastAPI (mv3d-hartley)
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── pyproject.toml
+│   ├── scripts/                    # scripts Python de uso unico (orb_test, etc.)
+│   ├── src/sfm_pipeline/
+│   │   ├── preprocess.py           # Persona A
+│   │   ├── features.py             # Persona A
+│   │   ├── matching.py             # Persona A
+│   │   ├── geometry.py             # Persona B
+│   │   ├── triangulation.py        # Persona B
+│   │   ├── sfm.py                  # Persona B
+│   │   ├── export.py               # Persona B
+│   │   ├── metrics.py              # Persona B
+│   │   ├── cli.py                  # CLI: python -m sfm_pipeline.cli --dataset <name>
+│   │   ├── config.py               # carga .env + datasets.yaml
+│   │   └── api/server.py           # FastAPI (Persona C)
+│   └── tests/
+├── frontend/                       # Three.js + Vite + pnpm (mv3d-galileo, Persona C)
+│   ├── Dockerfile
+│   ├── package.json
+│   ├── vite.config.js
+│   ├── index.html
+│   └── src/
+│       ├── main.js
+│       ├── viewer/pointCloudViewer.js
+│       └── styles/main.css
+├── data/                           # datasets de entrada
+│   ├── datasets.yaml               # registro central
+│   ├── gamecube/{images,intrinsics.json,README.md}
+│   └── other/{images,intrinsics.json,README.md}
+├── outputs/                        # cloud.ply y metrics.json por dataset
+├── scripts/                        # scripts shell (01_start, 06_pipeline, etc.)
+└── docs/
+    ├── plan.md                     # este archivo
+    ├── summary.md
+    ├── course-references.md
+    ├── idea-1-3d-reconstruction.md
+    ├── faq.md                      # Q&A consensuada del equipo
+    ├── contracts/                  # contratos de interfaz entre modulos
+    ├── theory/                     # copia literal de anotaciones (semanas 1-7)
+    ├── lectures/                   # apuntes propios del equipo
+    ├── journals/                   # bitacora diaria (person-a/b/c/d.md)
+    ├── prompts/                    # log de prompts de IA (person-a/b/c/d.md)
+    ├── presentation/               # slides + video
+    └── final/                      # document.md, diagrams/, results/
 ```
 
 ## Mapeo a temas del curso
@@ -414,7 +422,7 @@ gantt
 | Triangulacion | 7 | `triangulation.py` | B |
 | Morfologia matematica | 3 | `preprocess.py` | A (opcional) |
 
-Detalle ampliado de relevancia y reuso de los labs en [referencias-curso.md](./referencias-curso.md).
+Detalle ampliado de relevancia y reuso de los labs en [course-references.md](./course-references.md).
 
 ## Distribucion de slides y presentacion
 
@@ -433,7 +441,7 @@ El PDF del curso exige slides PDF con $\leq 10$ laminas y una presentacion en cl
 | 9 | Conclusion y limitaciones (drift, $K$ aproximada) | Todos | D |
 | 10 | Bibliografia y referencias | D | D |
 
-**Ensayo Mie 20 may**: cada quien presenta sus laminas con cronometro y los demas hacen de jurado con preguntas dificiles. Se actualiza `docs/preguntas-faq.md` despues del ensayo.
+**Ensayo Mie 20 may**: cada quien presenta sus laminas con cronometro y los demas hacen de jurado con preguntas dificiles. Se actualiza `docs/faq.md` despues del ensayo.
 
 ## Mapeo de la rubrica de evaluacion (25 puntos)
 
@@ -441,8 +449,8 @@ Cada criterio tiene un responsable principal y entregables concretos en el repos
 
 | Criterio | Pts | Que se evalua | Entregables clave | Responsable principal |
 | :--- | :--- | :--- | :--- | :--- |
-| Aprobacion de la idea | 3 | Idea aprobada en su momento | [idea-1-reconstruccion-3d.md](./idea-1-reconstruccion-3d.md) ya aprobada | D |
-| Documento | 5 | 8 secciones completas y bien escritas | `docs/documento_final.pdf` | D maqueta, todos contribuyen |
+| Aprobacion de la idea | 3 | Idea aprobada en su momento | [idea-1-3d-reconstruction.md](./idea-1-3d-reconstruction.md) ya aprobada | D |
+| Documento | 5 | 8 secciones completas y bien escritas | `docs/final/document.md` (fuente) y `docs/final/document.pdf` (entregable) | D maqueta, todos contribuyen |
 | Repositorio | 1 | Codigo organizado, README claro, instalable | `README.md`, `requirements.txt`, estructura modular | A coordina, todos commitean |
 | Video | 1 | 3 a 5 min explicando solucion + demo | Video subido al repo o link | C graba demo, D edita |
 | Slides | 5 | $\leq 10$ laminas claras y bien diseñadas | `docs/slides.pdf` | D maqueta, autoria distribuida (ver tabla anterior) |
@@ -484,7 +492,7 @@ Para que el plan paralelo funcione sin perder conocimiento compartido, hay dos t
 
 ### Cross-training semanal (conocimiento compartido)
 
-Reuniones recurrentes de 30 a 45 minutos. Cada persona toma un slot de 5 a 10 minutos para presentar avances al resto, con demo si aplica. Se cierra con preguntas y se actualiza `docs/preguntas-faq.md`.
+Reuniones recurrentes de 30 a 45 minutos. Cada persona toma un slot de 5 a 10 minutos para presentar avances al resto, con demo si aplica. Se cierra con preguntas y se actualiza `docs/faq.md`.
 
 - **Jue 30 abr** (post entrega 1): cada quien muestra que dejo funcionando (skeleton, features, geometria sintetica, demo mock, datasets).
 - **Lun 4 may**: midpoint cross-training, foco en geometria $F$/$E$ y matching real.
