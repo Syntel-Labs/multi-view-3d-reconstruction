@@ -1,0 +1,69 @@
+# docker-compose.yml -- observatory stack del multi-view-3d-reconstruction
+#
+# Prefijo: mv3d-* (contenedores y red).
+# Servicios:
+#   hartley  -- backend FastAPI con pipeline SfM (autor de Multiple View Geometry).
+#   galileo  -- frontend Three.js + Vite (telescopio, visualizacion).
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+
+  hartley:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: dev
+    container_name: mv3d-hartley
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-8000}:${BACKEND_INTERNAL_PORT:-8000}"
+    environment:
+      - PYTHONUNBUFFERED=${PYTHONUNBUFFERED}
+      - PYTHONDONTWRITEBYTECODE=${PYTHONDONTWRITEBYTECODE}
+      - LOG_LEVEL=${LOG_LEVEL}
+      - DATA_DIR=${DATA_DIR}
+      - OUTPUTS_DIR=${OUTPUTS_DIR}
+      - DATASETS_CONFIG=${DATASETS_CONFIG}
+      - BACKEND_HOST=${BACKEND_HOST}
+      - BACKEND_INTERNAL_PORT=${BACKEND_INTERNAL_PORT}
+      - TZ=${TZ}
+    volumes:
+      - ./backend/src:/app/src
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+    logging: *default-logging
+    networks:
+      - observatory
+
+  galileo:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: dev
+    container_name: mv3d-galileo
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-5173}:${FRONTEND_INTERNAL_PORT:-5173}"
+    environment:
+      - VITE_BACKEND_URL=${VITE_BACKEND_URL}
+      - TZ=${TZ}
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.js:/app/vite.config.js
+    depends_on:
+      - hartley
+    logging: *default-logging
+    networks:
+      - observatory
+
+networks:
+  observatory:
+    name: mv3d-observatory
+    driver: bridge
