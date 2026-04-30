@@ -1,0 +1,36 @@
+# data/datasets.yaml -- registro central de datasets disponibles para el pipeline SfM.
+# Cada dataset vive en data/<name>/ con images/, intrinsics.json y README.md.
+# Contrato detallado: docs/contracts/datasets.md.
+#
+# Campos:
+#   name             identificador kebab-case (coincide con el nombre de la subcarpeta)
+#   description      texto corto de que es el dataset
+#   path             ruta relativa al repo
+#   expected_images  cantidad objetivo de fotos (referencia, no obligatoria)
+#   intrinsics       ruta al intrinsics.json del dataset
+#   captured_by      iniciales del responsable (A, B, C, D)
+#   capture_date     YYYY-MM-DD (vacio mientras no este capturado)
+#   notes            observaciones libres
+#   status           pending | captured | validated
+
+datasets:
+
+  - name: gamecube
+    description: Consola Nintendo GameCube fotografiada en 360 grados (objeto pequeno).
+    path: data/gamecube
+    expected_images: 24
+    intrinsics: data/gamecube/intrinsics.json
+    captured_by: D
+    capture_date: ""
+    notes: "Dataset 1 del plan. Objeto pequeno con texturas y detalle suficiente para SIFT/ORB."
+    status: pending
+
+  - name: other
+    description: Dataset secundario (placeholder, renombrar al definir el sujeto).
+    path: data/other
+    expected_images: 10
+    intrinsics: data/other/intrinsics.json
+    captured_by: D
+    capture_date: ""
+    notes: "Pendiente de definir. Candidatos: fachada arquitectonica o escena interior."
+    status: pending

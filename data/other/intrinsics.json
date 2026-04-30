@@ -1,0 +1,12 @@
+{
+  "device_id": "",
+  "device_model": "",
+  "image_width": 0,
+  "image_height": 0,
+  "focal_length_px": 0.0,
+  "principal_point_px": [0.0, 0.0],
+  "sensor_width_mm": 0.0,
+  "exif_focal_length_mm": 0.0,
+  "exif_focal_length_35mm": 0.0,
+  "notes": "Pendiente: completar al capturar el dataset. Ver docs/contracts/intrinsics-json.md y docs/devices.md."
+}
