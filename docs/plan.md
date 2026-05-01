@@ -2,7 +2,6 @@
 
 Documentos de referencia:
 
-- [idea-1-3d-reconstruction.pdf](./idea-1-3d-reconstruction.pdf)
 - [idea-1-3d-reconstruction.md](./idea-1-3d-reconstruction.md)
 - [course-references.md](./course-references.md)
 
