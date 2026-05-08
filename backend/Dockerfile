@@ -28,4 +28,4 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 COPY . .
 RUN pip install -e .
 EXPOSE 8000
-CMD ["sh", "-c", "uvicorn sfm_pipeline.api.server:app --host ${BACKEND_HOST:-0.0.0.0} --port ${BACKEND_INTERNAL_PORT:-8000} --reload"]
+CMD ["sh", "-c", "uvicorn sfm_pipeline.api.server:app --host ${BACKEND_HOST:-0.0.0.0} --port ${BACKEND_INTERNAL_PORT:-8000} --reload --reload-dir /app/src"]
