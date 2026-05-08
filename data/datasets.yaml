@@ -34,3 +34,23 @@ datasets:
     capture_date: ""
     notes: "Pendiente de definir. Candidatos: fachada arquitectonica o escena interior."
     status: pending
+
+  - name: apple_co3d
+    description: Manzana del dataset CO3D de Meta AI, secuencia 103_12148_21353.
+    path: data/apple_co3d
+    expected_images: 93
+    intrinsics: data/apple_co3d/intrinsics.json
+    captured_by: external
+    capture_date: "2024-01-01"
+    notes: "CO3D apple sequence. Intrinsics reales extraidas de frame_annotations.jgz. Resolucion 707x1259."
+    status: captured
+
+  - name: controlgamecube
+    description: Control de Nintendo GameCube fotografiado en 360 grados desde video WhatsApp.
+    path: data/controlgamecube
+    expected_images: 78
+    intrinsics: data/controlgamecube/intrinsics.json
+    captured_by: D
+    capture_date: "2026-04-30"
+    notes: "Imagenes extraidas de video WhatsApp, sin EXIF. 78 frames, resolucion 478x850."
+    status: captured
