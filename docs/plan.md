@@ -11,7 +11,7 @@ Proyecto final del curso CC3045. Se implementa un pipeline clasico de Structure 
 
 - Periodo: 28 de abril de 2026 al 21 de mayo de 2026 (24 dias).
 - Equipo: 4 integrantes con roles especializados y dependencias minimizadas mediante contratos de interfaz definidos en el dia 1.
-- Alcance: solo el core. Quedan fuera segmentacion automatica, LightGlue, SuperGlue, NeRF y Gaussian Splatting.
+- Alcance: solo el core SfM. La salida del pipeline es una **nube de puntos dispersa** (sparse point cloud), no un modelo solido con superficie ni textura. Para obtener la forma 3D visible del objeto se necesita MVS (Multi-View Stereo) seguido de reconstruccion de superficie (Poisson, Marching Cubes) — ambas etapas quedan fuera del alcance. Quedan fuera tambien: segmentacion automatica, LightGlue, SuperGlue, NeRF y Gaussian Splatting.
 - Repositorio: ya creado y vacio.
 
 ## Principio rector: conocimiento compartido
@@ -83,7 +83,7 @@ Cada persona tiene **tres responsabilidades** independientes del rol:
 
 - Modulos: `backend/src/sfm_pipeline/api/` (FastAPI) y `frontend/` (Three.js + Vite).
 - Base de partida: ninguna del curso, requiere setup desde cero.
-- Salida: aplicacion local que recibe ZIP de fotos, ejecuta el pipeline y muestra la nube en el navegador con panel de metricas.
+- Salida: aplicacion local que recibe ZIP de fotos, ejecuta el pipeline y muestra la **nube de puntos dispersa** en el navegador con panel de metricas. Lo que se visualiza son los puntos SIFT triangulados, no una superficie solida del objeto — esto es lo que produce SfM. Para ver la forma 3D solida del objeto se necesitaria MVS + reconstruccion de superficie (fuera del alcance del proyecto).
 - Dependencias externas: consume el CLI de B `python -m sfm_pipeline.cli --dataset <name>` (ver [`docs/contracts/cli-sfm.md`](contracts/cli-sfm.md)). Hasta entonces, mock que devuelve un `.ply` fijo (Stanford bunny u otro).
 - **Documentacion compartida**: redacta seccion 4.5 (Demo web) del documento final, conduce la demo en vivo de Slide 8 y responde Q&A sobre arquitectura cliente-servidor; **debe ser capaz de explicar a nivel conceptual cada etapa del pipeline core** aunque no la haya programado.
 
