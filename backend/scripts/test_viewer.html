@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Test Viewer - Nube de Puntos SfM</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0d0d0d; color: #ccc; font-family: monospace; overflow: hidden; }
+    canvas { display: block; }
+
+    #overlay {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      background: rgba(0,0,0,0.65);
+      border: 1px solid #333;
+      padding: 12px 16px;
+      font-size: 12px;
+      line-height: 1.8;
+      min-width: 220px;
+    }
+    #overlay h2 { font-size: 13px; color: #fff; margin-bottom: 8px; }
+    #overlay .label { color: #888; }
+    #overlay .value { color: #7cf; }
+    #overlay .ok    { color: #7f7; }
+    #overlay .warn  { color: #fa7; }
+
+    #hint {
+      position: absolute;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.5);
+      padding: 6px 14px;
+      font-size: 11px;
+      color: #666;
+      border: 1px solid #222;
+    }
+  </style>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://esm.sh/three@0.167.0",
+      "three/addons/": "https://esm.sh/three@0.167.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+
+<div id="overlay">
+  <h2>SfM Test Viewer</h2>
+  <div><span class="label">dataset&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> <span class="value" id="m-dataset">-</span></div>
+  <div><span class="label">camaras&nbsp;&nbsp;&nbsp;&nbsp;</span> <span class="value" id="m-cams">-</span></div>
+  <div><span class="label">puntos 3D&nbsp;&nbsp;</span> <span class="value" id="m-pts">-</span></div>
+  <div><span class="label">repr. error</span> <span id="m-err">-</span></div>
+  <div><span class="label">inlier ratio</span> <span class="value" id="m-ratio">-</span></div>
+</div>
+
+<div id="hint">click + arrastrar: rotar &nbsp;|&nbsp; scroll: zoom &nbsp;|&nbsp; click derecho: pan</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
+
+const params = new URLSearchParams(location.search);
+const dataset = params.get('dataset') || 'controlgamecube';
+const API = params.get('api') || 'http://localhost:8000';
+
+// --- Escena ---
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d0d0d);
+
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.001, 1e7);
+camera.position.set(0, 0, 3);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(devicePixelRatio);
+document.body.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+
+// Ejes de referencia (10 cm en unidades de escena)
+scene.add(new THREE.AxesHelper(0.5));
+
+// --- Cargar metricas ---
+fetch(`${API}/outputs/${dataset}/metrics`)
+  .then(r => r.json())
+  .then(m => {
+    document.getElementById('m-dataset').textContent = m.dataset;
+    document.getElementById('m-cams').textContent    = m.num_images;
+    document.getElementById('m-pts').textContent     = m.num_3d_points;
+
+    const err = m.reprojection_error_mean;
+    const errEl = document.getElementById('m-err');
+    errEl.textContent = err.toFixed(4) + ' px';
+    errEl.className = err < 2.0 ? 'ok' : err < 5.0 ? 'value' : 'warn';
+
+    document.getElementById('m-ratio').textContent = (m.ransac_inlier_ratio * 100).toFixed(1) + '%';
+  })
+  .catch(() => document.getElementById('m-dataset').textContent = 'error cargando metricas');
+
+// --- Cargar nube PLY ---
+const loader = new PLYLoader();
+loader.load(
+  `${API}/outputs/${dataset}/cloud.ply`,
+  (geometry) => {
+    // Centrar usando percentil 5-95 para ignorar outliers extremos
+    const pos = geometry.attributes.position;
+    const xs = [], ys = [], zs = [];
+    for (let i = 0; i < pos.count; i++) {
+      xs.push(pos.getX(i)); ys.push(pos.getY(i)); zs.push(pos.getZ(i));
+    }
+    const pct = (arr, p) => { arr.sort((a, b) => a - b); return arr[Math.floor(arr.length * p / 100)]; };
+    const cx = (pct([...xs], 5) + pct([...xs], 95)) / 2;
+    const cy = (pct([...ys], 5) + pct([...ys], 95)) / 2;
+    const cz = (pct([...zs], 5) + pct([...zs], 95)) / 2;
+    geometry.translate(-cx, -cy, -cz);
+
+    const span = Math.max(
+      pct([...xs], 95) - pct([...xs], 5),
+      pct([...ys], 95) - pct([...ys], 5),
+      pct([...zs], 95) - pct([...zs], 5),
+    );
+
+    const material = new THREE.PointsMaterial({
+      size: span * 0.008,
+      color: 0x44aaff,
+      sizeAttenuation: true,
+    });
+
+    const points = new THREE.Points(geometry, material);
+    scene.add(points);
+
+    camera.position.set(0, 0, span * 2.2);
+    controls.update();
+  },
+  undefined,
+  (err) => console.error('Error cargando PLY:', err),
+);
+
+// --- Loop ---
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
