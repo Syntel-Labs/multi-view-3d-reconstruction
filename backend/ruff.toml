@@ -4,3 +4,11 @@ target-version = "py312"
 [lint]
 select = ["E", "F", "W", "I", "N", "S", "UP"]
 ignore = []
+
+[lint.per-file-ignores]
+"tests/**" = ["S101"]
+# Notacion matematica estandar (K, R, F, E, U, W, Vt) en modulos de geometria y algebra lineal.
+"src/sfm_pipeline/geometry.py" = ["N803", "N806"]
+"src/sfm_pipeline/utils.py" = ["N803", "N806", "I001"]
+"src/sfm_pipeline/debug.py" = ["N803"]
+"src/sfm_pipeline/triangulation.py" = ["PLR2004"]
