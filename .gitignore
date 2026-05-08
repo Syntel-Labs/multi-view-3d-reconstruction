@@ -239,3 +239,6 @@ outputs/**/*.ply
 # Logs exportados (07_export_logs.sh)
 logs/
 !logs/.gitkeep
+
+# reference
+references/
