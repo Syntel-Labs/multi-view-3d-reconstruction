@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mock PLY Viewer</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
+          "three/examples/jsm/": "https://unpkg.com/three@0.165.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <main class="layout">
+      <section class="panel">
+        <p class="eyebrow">FastAPI + Three.js</p>
+        <h1>Mock 3D Reconstruction</h1>
+        <p class="copy">
+          Upload a ZIP file. The backend will validate it and return a mock
+          `.ply` point cloud that gets rendered in the browser.
+        </p>
+
+        <form id="upload-form" class="upload-form">
+          <label class="input-label" for="zip-file">ZIP input</label>
+          <input id="zip-file" name="archive" type="file" accept=".zip" required />
+          <button type="submit">Send to /reconstruct</button>
+        </form>
+
+        <div class="status-block">
+          <p id="status">Waiting for a ZIP file.</p>
+          <a id="download-link" hidden>Download last mock .ply</a>
+        </div>
+      </section>
+
+      <section class="viewer-shell">
+        <div id="viewer"></div>
+      </section>
+    </main>
+
+    <script type="module" src="/static/app.js"></script>
+  </body>
+</html>
+
