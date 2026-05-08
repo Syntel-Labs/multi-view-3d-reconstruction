@@ -1,9 +1,3 @@
-"""Utilidades geometricas y de I/O compartidas por todos los modulos del pipeline.
-
-Ninguna funcion aqui tiene efectos secundarios mas alla de leer/escribir archivos.
-Importar segun necesidad: no importar el modulo completo para no arrastrar dependencias.
-"""
-
 from __future__ import annotations
 
 import json
@@ -12,10 +6,6 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-
-# ---------------------------------------------------------------------------
-# I/O de imagenes
-# ---------------------------------------------------------------------------
 
 def load_image(path: str | Path, grayscale: bool = False) -> np.ndarray:
     """Cargar una imagen desde disco.
@@ -32,9 +22,7 @@ def load_image(path: str | Path, grayscale: bool = False) -> np.ndarray:
         FileNotFoundError: si el archivo no existe.
         ValueError:        si OpenCV no puede leer el archivo.
 
-    Nota sobre color vs grises
-    --------------------------
-    Los modulos de la persona B (geometry, triangulation, sfm, metrics) trabajan
+    Los modulos de backend (geometry, triangulation, sfm, metrics) trabajan
     exclusivamente con coordenadas 2D de keypoints (arrays float32), nunca con
     pixeles de imagen directamente. Por eso el color o grises de la imagen NO
     afecta la precision de F, E, triangulacion ni reproyeccion.
@@ -44,7 +32,7 @@ def load_image(path: str | Path, grayscale: bool = False) -> np.ndarray:
     muchas imagenes de un dataset grande.
 
     La conversion a grises para deteccion SIFT/ORB la hace la persona A en
-    preprocess.py; la persona B no necesita hacerla.
+    preprocess.py
     """
     p = Path(path)
     if not p.exists():
@@ -56,11 +44,14 @@ def load_image(path: str | Path, grayscale: bool = False) -> np.ndarray:
     return img
 
 
-def list_images(folder: str | Path, exts: tuple[str, ...] = (".jpg", ".jpeg", ".png")) -> list[Path]:
+def list_images(
+    folder: str | Path,
+    exts: tuple[str, ...] = (".jpg", ".jpeg", ".png"),
+) -> list[Path]:
     """Listar imagenes de una carpeta ordenadas por nombre.
 
     Args:
-        folder: ruta a la carpeta (tipicamente data/<dataset>/images/).
+        folder: ruta a la carpeta
         exts:   extensiones aceptadas, en minusculas.
 
     Returns:
@@ -70,10 +61,6 @@ def list_images(folder: str | Path, exts: tuple[str, ...] = (".jpg", ".jpeg", ".
     paths = sorted(p for p in folder.iterdir() if p.suffix.lower() in exts)
     return paths
 
-
-# ---------------------------------------------------------------------------
-# I/O de intrinsics
-# ---------------------------------------------------------------------------
 
 def load_intrinsics(path: str | Path) -> np.ndarray:
     """Cargar la matriz intrinseca K desde un intrinsics.json.
@@ -128,10 +115,6 @@ def focal_from_exif_35mm(focal_35mm: float, image_width_px: int) -> float:
     return focal_35mm * image_width_px / 36.0
 
 
-# ---------------------------------------------------------------------------
-# Construccion de matrices de camara
-# ---------------------------------------------------------------------------
-
 def build_projection_matrix(K: np.ndarray, R: np.ndarray, t: np.ndarray) -> np.ndarray:
     """Construir la matriz de proyeccion P = K [R | t].
 
@@ -162,10 +145,6 @@ def camera_center(R: np.ndarray, t: np.ndarray) -> np.ndarray:
     return (-R.T @ t.reshape(3, 1)).ravel()
 
 
-# ---------------------------------------------------------------------------
-# Conversion de coordenadas
-# ---------------------------------------------------------------------------
-
 def to_homogeneous(pts: np.ndarray) -> np.ndarray:
     """Agregar columna de unos para convertir a coordenadas homogeneas.
 
@@ -193,10 +172,6 @@ def from_homogeneous(pts: np.ndarray) -> np.ndarray:
         pts = pts.T
     return (pts[:, :-1] / pts[:, -1:]).astype(np.float64)
 
-
-# ---------------------------------------------------------------------------
-# Filtros geometricos
-# ---------------------------------------------------------------------------
 
 def filter_cheirality(
     pts3d: np.ndarray,
@@ -238,10 +213,6 @@ def filter_max_depth(pts3d: np.ndarray, max_depth: float = 100.0) -> np.ndarray:
     """
     return pts3d[:, 2] < max_depth
 
-
-# ---------------------------------------------------------------------------
-# Metricas geometricas
-# ---------------------------------------------------------------------------
 
 def reprojection_errors(
     pts3d: np.ndarray,

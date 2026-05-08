@@ -1,25 +1,6 @@
-"""Utilidades de logging y debugging reutilizables para todos los modulos del pipeline.
-
-Los logs se escriben simultaneamente a stdout y, si se indica log_file, a un archivo
-en outputs/logs/ que persiste entre ejecuciones.
-
-Uso basico:
-    from sfm_pipeline.debug import PipelineLogger
-
-    log = PipelineLogger("geometry", log_file="outputs/logs/geometry.log")
-    log.section("Estimando F")
-    log.param("n_puntos", 300)
-    log.stats("Inliers", {"count": 216, "ratio": 0.72})
-    log.matrix("F", F)
-    log.warn("ratio bajo")
-    log.ok("F estimada")
-    log.summary({"Inlier ratio": (0.72, True)})
-"""
-
 from __future__ import annotations
 
 import logging
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -73,17 +54,14 @@ class PipelineLogger:
             self._file_path = log_file
             # Escribir cabecera en el archivo para identificar la sesion
             self._logger.log(log_level, "=" * 56)
-            self._logger.log(log_level, "\tSESION\t%s\tmodulo=%s", datetime.now().isoformat(), module)
+            ts = datetime.now().isoformat()
+            self._logger.log(log_level, "\tSESION\t%s\tmodulo=%s", ts, module)
             self._logger.log(log_level, "=" * 56)
 
     @property
     def log_file(self) -> str | None:
         """Ruta del archivo de log activo, o None si no hay."""
         return self._file_path
-
-    # ------------------------------------------------------------------
-    # API publica
-    # ------------------------------------------------------------------
 
     def section(self, title: str) -> None:
         """Separador de seccion con titulo."""
@@ -169,10 +147,6 @@ class PipelineLogger:
                 self._emit(f"\t  {desc:<32} {val}\t{status}")
         self._emit(sep + "\n")
         return all_ok
-
-    # ------------------------------------------------------------------
-    # Helpers internos
-    # ------------------------------------------------------------------
 
     def _emit(self, msg: str, *args: Any) -> None:
         if not self.verbose:
