@@ -1,9 +1,3 @@
-"""Geometria epipolar: matriz fundamental F, esencial E y recuperacion de pose.
-
-Referencia: docs/theory/08_sfm-geometry-reference.md
-H&Z Capitulos 9 y 10.
-"""
-
 import logging
 
 import cv2
@@ -238,11 +232,6 @@ def inlier_ratio(mask: np.ndarray) -> float:
     """
     m = mask.ravel()
     return float(m.sum()) / float(len(m))
-
-
-# ---------------------------------------------------------------------------
-# Pipeline de debug completo
-# ---------------------------------------------------------------------------
 
 def debug_geometry_pipeline(
     points_a: np.ndarray,
