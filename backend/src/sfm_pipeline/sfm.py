@@ -21,6 +21,8 @@ from sfm_pipeline.utils import (
     reprojection_errors,
 )
 
+WINDOW = 3  # cubre (i, i+1), (i, i+2), (i, i+3)
+
 
 def run_pipeline(
     dataset_name: str,
@@ -28,14 +30,14 @@ def run_pipeline(
     detector: str = "sift",
     lowe_ratio: float = 0.75,
     ransac_threshold: float = 1.0,
-    min_matches: int = 8,
+    min_matches: int = 6,
     log_file: str | None = "auto",
 ) -> dict:
     """Ejecutar el pipeline SfM completo sobre un dataset registrado en datasets.yaml.
 
-    Lee imagenes, extrae features, calcula matches consecutivos, estima la geometria
-    del par inicial y registra el resto de camaras con solvePnPRansac triangulando
-    nuevos puntos en cada paso.
+    Lee imagenes, extrae features, calcula matches con ventana deslizante, estima la
+    geometria del par inicial y registra el resto de camaras con solvePnPRansac
+    triangulando nuevos puntos en cada paso.
 
     Args:
         dataset_name: Nombre del dataset declarado en data/datasets.yaml.
@@ -76,6 +78,7 @@ def run_pipeline(
     log.param("dataset", dataset_name)
     log.param("detector", detector)
     log.param("images_folder", str(images_folder))
+    log.param("window", WINDOW)
 
     # 2. Cargar imagenes
     image_paths = list_images(images_folder)
@@ -111,36 +114,45 @@ def run_pipeline(
 
     stage_times["features"] = time.perf_counter() - t0
 
-    # 4. Matching de pares consecutivos
+    # 4. Windowed matching: pares (i, i+1), (i, i+2) ... (i, i+WINDOW)
     t0 = time.perf_counter()
-    log.section("MATCHING CONSECUTIVO")
+    log.section(f"MATCHING VENTANA (window={WINDOW})")
 
-    # matches_pairs[i] = array (M, 2) int32 con indices en kp_arrays[i] y kp_arrays[i+1]
-    matches_pairs: list[np.ndarray] = []
+    # matches_dict[(i, j)] = array (M, 2) int32 con indices en kp_arrays[i] y kp_arrays[j]
+    matches_dict: dict[tuple[int, int], np.ndarray] = matching.match_windowed(
+        desc_arrays=desc_arrays,
+        detector=detector,
+        ratio=lowe_ratio,
+        window=WINDOW,
+    )
 
-    for i in range(n_imgs - 1):
-        good = matching.match_descriptors(
-            desc_arrays[i], desc_arrays[i + 1], detector=detector, ratio=lowe_ratio
-        )
-        pair_idxs = np.array([[m.queryIdx, m.trainIdx] for m in good], dtype=np.int32)
-        matches_pairs.append(pair_idxs)
-        log.info("\tPar (%d, %d): %d matches buenos", i, i + 1, len(pair_idxs))
+    for (i, j), arr in sorted(matches_dict.items()):
+        log.info("\tPar (%d, %d): %d matches buenos", i, j, len(arr))
 
     stage_times["matching"] = time.perf_counter() - t0
 
-    # 5. Geometria del par inicial (0, 1)
+    # 5. Geometria del par inicial — usar el par (0, 1) o el mejor par disponible
     t0 = time.perf_counter()
-    log.section("GEOMETRIA PAR INICIAL (0-1)")
+    log.section("GEOMETRIA PAR INICIAL")
 
-    pair0 = matches_pairs[0]
+    # Buscar el par inicial con mas matches entre los primeros pares del window
+    init_candidates = [(i, j) for (i, j) in matches_dict if i == 0]
+    if not init_candidates:
+        raise RuntimeError("No hay matches validos para ningún par inicial.")
+
+    init_pair = max(init_candidates, key=lambda p: len(matches_dict[p]))
+    pair0 = matches_dict[init_pair]
+    log.info("\tPar inicial seleccionado: %s con %d matches", init_pair, len(pair0))
+
     if len(pair0) < min_matches:
         raise RuntimeError(
-            f"Par inicial tiene {len(pair0)} matches (minimo {min_matches}). "
+            f"Par inicial {init_pair} tiene {len(pair0)} matches (minimo {min_matches}). "
             "Intenta con mas imagenes o un dataset con mayor solapamiento."
         )
 
-    pts_a = kp_arrays[0][pair0[:, 0]].astype(np.float32)
-    pts_b = kp_arrays[1][pair0[:, 1]].astype(np.float32)
+    cam_a, cam_b = init_pair
+    pts_a = kp_arrays[cam_a][pair0[:, 0]].astype(np.float32)
+    pts_b = kp_arrays[cam_b][pair0[:, 1]].astype(np.float32)
 
     f_mat, mask_f = estimate_fundamental(
         pts_a, pts_b, ransac_threshold=ransac_threshold, verbose=True
@@ -181,12 +193,17 @@ def run_pipeline(
     cloud_pts: list[np.ndarray] = list(pts3d_init)
     kp_to_cloud: dict[tuple[int, int], int] = {}
 
-    for j, (ki, kj) in enumerate(pair0_valid):
-        kp_to_cloud[(0, int(ki))] = j
-        kp_to_cloud[(1, int(kj))] = j
+    # Inicializar poses: None para todas, luego asignar cam_a y cam_b
+    camera_rs: list[np.ndarray | None] = [None] * n_imgs
+    camera_ts: list[np.ndarray | None] = [None] * n_imgs
+    camera_rs[cam_a] = r0
+    camera_ts[cam_a] = t0_vec
+    camera_rs[cam_b] = r_init
+    camera_ts[cam_b] = t_init
 
-    camera_rs: list[np.ndarray | None] = [r0, r_init]
-    camera_ts: list[np.ndarray | None] = [t0_vec, t_init]
+    for j, (ki, kj) in enumerate(pair0_valid):
+        kp_to_cloud[(cam_a, int(ki))] = j
+        kp_to_cloud[(cam_b, int(kj))] = j
 
     stage_times["triangulation"] = time.perf_counter() - t0
 
@@ -194,27 +211,41 @@ def run_pipeline(
     t0 = time.perf_counter()
     log.section("MULTI-VISTA INCREMENTAL")
     pnp_ratios: list[float] = []
-    lookback = 5  # camaras atras a consultar cuando el par consecutivo no alcanza
+    lookback = 10  # camaras atras a consultar cuando los matches del window no alcanzan
 
     for i in range(2, n_imgs):
+        if camera_rs[i] is not None:
+            # Ya registrada (fue el cam_b del par inicial con window > 1)
+            continue
 
-        # 7a. Correspondencias 3D-2D: par consecutivo + ventana deslizante
+        # 7a. Correspondencias 3D-2D usando TODOS los pares del window que lleguen a i
         pts3d_for_pnp: list[np.ndarray] = []
         pts2d_for_pnp: list[np.ndarray] = []
         seen_cloud: set[int] = set()
 
-        for row in matches_pairs[i - 1]:
-            ki_prev, ki_curr = int(row[0]), int(row[1])
-            cloud_idx = kp_to_cloud.get((i - 1, ki_prev))
-            if cloud_idx is not None and cloud_idx not in seen_cloud:
-                pts3d_for_pnp.append(cloud_pts[cloud_idx])
-                pts2d_for_pnp.append(kp_arrays[i][ki_curr])
-                seen_cloud.add(cloud_idx)
+        # Buscar en todos los pares (j, i) disponibles en matches_dict
+        source_pairs = sorted(
+            [(j, i) for (j, k) in matches_dict if k == i and camera_rs[j] is not None],
+            key=lambda p: p[0],
+            reverse=True,  # preferir vecinos mas cercanos primero
+        )
 
-        # Si no hay suficientes, buscar en camaras registradas anteriores
+        for (j, _) in source_pairs:
+            pair_ji = matches_dict[(j, i)]
+            for row in pair_ji:
+                ki_prev, ki_curr = int(row[0]), int(row[1])
+                cloud_idx = kp_to_cloud.get((j, ki_prev))
+                if cloud_idx is not None and cloud_idx not in seen_cloud:
+                    pts3d_for_pnp.append(cloud_pts[cloud_idx])
+                    pts2d_for_pnp.append(kp_arrays[i][ki_curr])
+                    seen_cloud.add(cloud_idx)
+
+        # Si aun no hay suficientes, buscar en camaras registradas con match on-the-fly
         if len(pts3d_for_pnp) < min_matches:
-            registered_before = [j for j in range(i - 2, -1, -1) if camera_rs[j] is not None]
+            registered_before = [j for j in range(i - 1, -1, -1) if camera_rs[j] is not None]
             for j in registered_before[:lookback]:
+                if (j, i) in matches_dict:
+                    continue  # ya procesado arriba
                 extra = matching.match_descriptors(
                     desc_arrays[j], desc_arrays[i], detector=detector, ratio=lowe_ratio
                 )
@@ -227,15 +258,13 @@ def run_pipeline(
                         seen_cloud.add(cloud_idx)
                         added += 1
                 if added:
-                    log.info("\tImagen %d: ventana cam %d, +%d corr3D", i, j, added)
+                    log.info("\tImagen %d: fallback cam %d, +%d corr3D", i, j, added)
                 if len(pts3d_for_pnp) >= min_matches:
                     break
 
-        if len(pts3d_for_pnp) < min_matches:  # noqa: PLR2004
+        if len(pts3d_for_pnp) < min_matches:
             n_corr = len(pts3d_for_pnp)
             log.warn("\tImagen %d: %d correspondencias 3D-2D insuficientes, saltando", i, n_corr)
-            camera_rs.append(None)
-            camera_ts.append(None)
             continue
 
         # 7b. solvePnPRansac
@@ -254,14 +283,12 @@ def run_pipeline(
 
         if not success or pnp_inliers is None or len(pnp_inliers) < 4:  # noqa: PLR2004
             log.warn("\tImagen %d: solvePnPRansac fallo, saltando", i)
-            camera_rs.append(None)
-            camera_ts.append(None)
             continue
 
         r_i, _ = cv2.Rodrigues(rvec)
         t_i = tvec
-        camera_rs.append(r_i)
-        camera_ts.append(t_i)
+        camera_rs[i] = r_i
+        camera_ts[i] = t_i
 
         ratio_pnp = len(pnp_inliers) / len(pts3d_for_pnp)
         pnp_ratios.append(ratio_pnp)
@@ -275,8 +302,10 @@ def run_pipeline(
         if tri_j is None:
             continue
 
-        if tri_j == i - 1:
-            tri_pairs = matches_pairs[i - 1]
+        # Obtener el par de matches para triangulacion (del dict o on-the-fly)
+        tri_pair_key = (tri_j, i)
+        if tri_pair_key in matches_dict:
+            tri_pairs = matches_dict[tri_pair_key]
         else:
             extra_tri = matching.match_descriptors(
                 desc_arrays[tri_j], desc_arrays[i], detector=detector, ratio=lowe_ratio
@@ -319,7 +348,7 @@ def run_pipeline(
         for j, tri_local in enumerate(valid_local):
             cld_idx = base_cloud_idx + j
             cloud_pts.append(new_pts3d[tri_local])
-            kp_to_cloud[(i - 1, int(ki_prev_arr[tri_local]))] = cld_idx
+            kp_to_cloud[(tri_j, int(ki_prev_arr[tri_local]))] = cld_idx
             kp_to_cloud[(i, int(ki_curr_arr[tri_local]))] = cld_idx
 
         log.info("\tImagen %d: +%d nuevos puntos 3D", i, len(valid_local))
@@ -330,13 +359,12 @@ def run_pipeline(
     pts3d_all = np.array(cloud_pts, dtype=np.float64)
 
     # Filtro IQR: eliminar puntos mas alla de 3*IQR del percentil 25-75 en cada eje.
-    # Captura triangulaciones degeneradas de rayos casi paralelos (Z ~ 1e14).
     q25 = np.percentile(pts3d_all, 25, axis=0)
     q75 = np.percentile(pts3d_all, 75, axis=0)
     iqr = q75 - q25
-    iqr = np.where(iqr < 1e-9, 1.0, iqr)  # evitar IQR==0 en nubes planas
+    iqr = np.where(iqr < 1e-9, 1.0, iqr)
     inlier_mask = np.all(
-        (pts3d_all >= q25 - 3.0 * iqr) & (pts3d_all <= q75 + 3.0 * iqr),
+        (pts3d_all >= q25 - 5.0 * iqr) & (pts3d_all <= q75 + 5.0 * iqr),
         axis=1,
     )
     n_before = len(pts3d_all)
