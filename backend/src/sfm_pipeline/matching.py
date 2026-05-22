@@ -27,11 +27,12 @@ def match_descriptors(
         ValueError: Si alguno de los arrays de descriptores es None o esta vacio.
     """
     if descriptors_a is None or len(descriptors_a) == 0:
-        msg = "descriptors_a es None o esta vacio."
-        raise ValueError(msg)
+        raise ValueError("descriptors_a es None o esta vacio.")
     if descriptors_b is None or len(descriptors_b) == 0:
-        msg = "descriptors_b es None o esta vacio."
-        raise ValueError(msg)
+        raise ValueError("descriptors_b es None o esta vacio.")
+    # knnMatch necesita al menos 2 descriptores en B para k=2.
+    if len(descriptors_b) < 2:
+        return []
 
     norm_type = cv2.NORM_HAMMING if detector == "orb" else cv2.NORM_L2
     matcher = cv2.BFMatcher(norm_type, crossCheck=False)
@@ -40,8 +41,8 @@ def match_descriptors(
 
     good_matches = [
         m
-        for m, n in raw_matches
-        if m.distance < ratio * n.distance
+        for m, n_lowe in raw_matches   # n_lowe evita shadowing de builtins
+        if m.distance < ratio * n_lowe.distance
     ]
     return good_matches
 
@@ -60,17 +61,17 @@ def match_windowed(
 
     Args:
         desc_arrays: Lista de arrays (N_i, D) con descriptores de cada imagen.
-            Un array None o vacío en la posición i hace que todos los pares
+            Un array None o vacio en la posicion i hace que todos los pares
             que lo involucran se omitan silenciosamente.
         detector: "sift" (NORM_L2) u "orb" (NORM_HAMMING).
         ratio: Umbral del test de ratio de Lowe.
-        window: Número de vecinos futuros a considerar (≥ 1).
+        window: Numero de vecinos futuros a considerar (>= 1).
             window=1 equivale al comportamiento consecutivo original.
 
     Returns:
         Diccionario {(i, j): array (M, 2) int32} donde cada fila contiene
-        el índice de keypoint en la imagen i y el índice en la imagen j.
-        Solo se incluyen pares con al menos un match válido.
+        el indice de keypoint en la imagen i y el indice en la imagen j.
+        Solo se incluyen pares con al menos un match valido.
     """
     if window < 1:
         raise ValueError(f"window debe ser >= 1, recibido: {window}")
@@ -79,19 +80,19 @@ def match_windowed(
     matcher = cv2.BFMatcher(norm_type, crossCheck=False)
 
     results: dict[tuple[int, int], np.ndarray] = {}
-    n = len(desc_arrays)
+    n_images = len(desc_arrays)  # nombre distinto para no colisionar con n_lowe
 
-    for i in range(n):
+    for i in range(n_images):
         desc_i = desc_arrays[i]
         if desc_i is None or len(desc_i) == 0:
             continue
 
-        for j in range(i + 1, min(i + window + 1, n)):
+        for j in range(i + 1, min(i + window + 1, n_images)):
             desc_j = desc_arrays[j]
             if desc_j is None or len(desc_j) == 0:
                 continue
 
-            # knnMatch requiere al menos 2 descriptores en la imagen B
+            # knnMatch requiere al menos 2 descriptores en la imagen B.
             if len(desc_j) < 2:
                 continue
 
@@ -99,8 +100,8 @@ def match_windowed(
 
             good = [
                 (m.queryIdx, m.trainIdx)
-                for m, n_match in raw
-                if m.distance < ratio * n_match.distance
+                for m, n_lowe in raw   # n_lowe evita shadowing de n_images
+                if m.distance < ratio * n_lowe.distance
             ]
 
             if good:
@@ -129,7 +130,7 @@ def save_matches_npz(
         keypoints_list: Lista de arrays (N_i, 2) float32 con coordenadas (x, y).
         descriptors_list: Lista de arrays (N_i, D) con los descriptores de cada imagen.
         matches_pairs: Dict {(i, j): array (M, 2) int32} (salida de match_windowed)
-            o lista de arrays para pares consecutivos (compatibilidad hacia atrás).
+            o lista de arrays para pares consecutivos (compatibilidad hacia atras).
         detector: Nombre del detector usado ("sift" o "orb").
         lowe_ratio: Umbral de ratio de Lowe aplicado durante el matching.
 
@@ -151,7 +152,6 @@ def save_matches_npz(
     for i, desc in enumerate(descriptors_list):
         payload[f"descriptors_{i}"] = desc
 
-    # Soporte tanto para dict (windowed) como para list (consecutivo)
     if isinstance(matches_pairs, dict):
         for (i, j), match_array in matches_pairs.items():
             payload[f"matches_{i}_{j}"] = match_array

@@ -21,7 +21,32 @@ from sfm_pipeline.utils import (
     reprojection_errors,
 )
 
-WINDOW = 3  # cubre (i, i+1), (i, i+2), (i, i+3)
+WINDOW = 6  # cubre (i, i+1), (i, i+2), (i, i+3)
+
+# Umbral de distancia euclidea maxima desde el origen para considerar un punto
+# 3D valido. Debe ser coherente con _MAX_POINT_DIST en triangulation.py.
+_MAX_POINT_DIST = 1e5
+
+# Factor IQR para el filtro de outliers final (1.5 es el estandar estadistico).
+_IQR_FACTOR = 1.5
+
+
+def _is_point_valid(pt: np.ndarray) -> bool:
+    """Verificar que un punto 3D no es degenerado ni esta fuera de rango."""
+    return (
+        pt is not None
+        and np.all(np.isfinite(pt))
+        and np.linalg.norm(pt) < _MAX_POINT_DIST
+    )
+
+
+def _is_pose_valid(rvec: np.ndarray, tvec: np.ndarray) -> bool:
+    """Verificar que rvec y tvec devueltos por solvePnPRansac no son degenerados."""
+    return (
+        np.all(np.isfinite(rvec))
+        and np.all(np.isfinite(tvec))
+        and np.linalg.norm(tvec) < _MAX_POINT_DIST
+    )
 
 
 def run_pipeline(
@@ -71,6 +96,11 @@ def run_pipeline(
 
     images_folder = Path(dataset.get("images_path") or Path(dataset["path"]) / "images")
     intrinsics_path = Path(dataset["intrinsics"])
+    if not intrinsics_path.exists():
+        raise ValueError(
+            f"Archivo de intrinsics no encontrado: {intrinsics_path}. "
+            "Verifica la clave 'intrinsics' en datasets.yaml."
+        )
     out_dir = Path(output_dir) if output_dir else Path("outputs") / dataset_name
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -135,10 +165,9 @@ def run_pipeline(
     t0 = time.perf_counter()
     log.section("GEOMETRIA PAR INICIAL")
 
-    # Buscar el par inicial con mas matches entre los primeros pares del window
     init_candidates = [(i, j) for (i, j) in matches_dict if i == 0]
     if not init_candidates:
-        raise RuntimeError("No hay matches validos para ningún par inicial.")
+        raise RuntimeError("No hay matches validos para ningun par inicial.")
 
     init_pair = max(init_candidates, key=lambda p: len(matches_dict[p]))
     pair0 = matches_dict[init_pair]
@@ -180,9 +209,12 @@ def run_pipeline(
     p1_mat = build_projection_matrix(k_matrix, r_init, t_init)
 
     pts3d_raw, valid_tri = triangulation.triangulate_points(p0_mat, p1_mat, pts_a_in, pts_b_in)
+
+    # Guardar solo puntos validos: triangulate_points ya filtra w degenerado,
+    # profundidad negativa, inf/nan y distancia excesiva.
     pts3d_init = pts3d_raw[valid_tri]
     pair0_valid = pair0_in[valid_tri]
-    pts2d_init = pts_a_in[valid_tri]  # 2D en camara 0 para reprojection error
+    pts2d_init = pts_a_in[valid_tri]
 
     if len(pts3d_init) == 0:
         raise RuntimeError("Triangulacion inicial no produjo ningun punto valido.")
@@ -193,7 +225,6 @@ def run_pipeline(
     cloud_pts: list[np.ndarray] = list(pts3d_init)
     kp_to_cloud: dict[tuple[int, int], int] = {}
 
-    # Inicializar poses: None para todas, luego asignar cam_a y cam_b
     camera_rs: list[np.ndarray | None] = [None] * n_imgs
     camera_ts: list[np.ndarray | None] = [None] * n_imgs
     camera_rs[cam_a] = r0
@@ -211,23 +242,21 @@ def run_pipeline(
     t0 = time.perf_counter()
     log.section("MULTI-VISTA INCREMENTAL")
     pnp_ratios: list[float] = []
-    lookback = 10  # camaras atras a consultar cuando los matches del window no alcanzan
+    lookback = 10
 
     for i in range(2, n_imgs):
         if camera_rs[i] is not None:
-            # Ya registrada (fue el cam_b del par inicial con window > 1)
             continue
 
-        # 7a. Correspondencias 3D-2D usando TODOS los pares del window que lleguen a i
+        # 7a. Correspondencias 3D-2D
         pts3d_for_pnp: list[np.ndarray] = []
         pts2d_for_pnp: list[np.ndarray] = []
         seen_cloud: set[int] = set()
 
-        # Buscar en todos los pares (j, i) disponibles en matches_dict
         source_pairs = sorted(
             [(j, i) for (j, k) in matches_dict if k == i and camera_rs[j] is not None],
             key=lambda p: p[0],
-            reverse=True,  # preferir vecinos mas cercanos primero
+            reverse=True,
         )
 
         for (j, _) in source_pairs:
@@ -235,36 +264,47 @@ def run_pipeline(
             for row in pair_ji:
                 ki_prev, ki_curr = int(row[0]), int(row[1])
                 cloud_idx = kp_to_cloud.get((j, ki_prev))
-                if cloud_idx is not None and cloud_idx not in seen_cloud:
-                    pts3d_for_pnp.append(cloud_pts[cloud_idx])
-                    pts2d_for_pnp.append(kp_arrays[i][ki_curr])
-                    seen_cloud.add(cloud_idx)
+                if cloud_idx is None or cloud_idx in seen_cloud:
+                    continue
+                pt = cloud_pts[cloud_idx]
+                # Descartar puntos corruptos antes de pasarlos a PnP.
+                if not _is_point_valid(pt):
+                    continue
+                pts3d_for_pnp.append(pt)
+                pts2d_for_pnp.append(kp_arrays[i][ki_curr])
+                seen_cloud.add(cloud_idx)
 
-        # Si aun no hay suficientes, buscar en camaras registradas con match on-the-fly
+        # Fallback: buscar en camaras registradas con match on-the-fly
         if len(pts3d_for_pnp) < min_matches:
             registered_before = [j for j in range(i - 1, -1, -1) if camera_rs[j] is not None]
             for j in registered_before[:lookback]:
                 if (j, i) in matches_dict:
-                    continue  # ya procesado arriba
+                    continue
                 extra = matching.match_descriptors(
                     desc_arrays[j], desc_arrays[i], detector=detector, ratio=lowe_ratio
                 )
                 added = 0
                 for m in extra:
                     cloud_idx = kp_to_cloud.get((j, m.queryIdx))
-                    if cloud_idx is not None and cloud_idx not in seen_cloud:
-                        pts3d_for_pnp.append(cloud_pts[cloud_idx])
-                        pts2d_for_pnp.append(kp_arrays[i][m.trainIdx])
-                        seen_cloud.add(cloud_idx)
-                        added += 1
+                    if cloud_idx is None or cloud_idx in seen_cloud:
+                        continue
+                    pt = cloud_pts[cloud_idx]
+                    if not _is_point_valid(pt):
+                        continue
+                    pts3d_for_pnp.append(pt)
+                    pts2d_for_pnp.append(kp_arrays[i][m.trainIdx])
+                    seen_cloud.add(cloud_idx)
+                    added += 1
                 if added:
                     log.info("\tImagen %d: fallback cam %d, +%d corr3D", i, j, added)
                 if len(pts3d_for_pnp) >= min_matches:
                     break
 
         if len(pts3d_for_pnp) < min_matches:
-            n_corr = len(pts3d_for_pnp)
-            log.warn("\tImagen %d: %d correspondencias 3D-2D insuficientes, saltando", i, n_corr)
+            log.warn(
+                "\tImagen %d: %d correspondencias 3D-2D insuficientes, saltando",
+                i, len(pts3d_for_pnp),
+            )
             continue
 
         # 7b. solvePnPRansac
@@ -285,6 +325,12 @@ def run_pipeline(
             log.warn("\tImagen %d: solvePnPRansac fallo, saltando", i)
             continue
 
+        # Validar que la pose no es degenerada antes de aceptarla.
+        if not _is_pose_valid(rvec, tvec):
+            tvec_norm = float(np.linalg.norm(tvec))
+            log.warn("\tImagen %d: pose degenerada (tvec=%.2e), saltando", i, tvec_norm)
+            continue
+
         r_i, _ = cv2.Rodrigues(rvec)
         t_i = tvec
         camera_rs[i] = r_i
@@ -297,12 +343,11 @@ def run_pipeline(
             i, ratio_pnp, len(pts3d_for_pnp),
         )
 
-        # 7c. Triangular nuevos puntos usando la camara registrada mas reciente
+        # 7c. Triangular nuevos puntos
         tri_j = next((jj for jj in range(i - 1, -1, -1) if camera_rs[jj] is not None), None)
         if tri_j is None:
             continue
 
-        # Obtener el par de matches para triangulacion (del dict o on-the-fly)
         tri_pair_key = (tri_j, i)
         if tri_pair_key in matches_dict:
             tri_pairs = matches_dict[tri_pair_key]
@@ -345,34 +390,53 @@ def run_pipeline(
         base_cloud_idx = len(cloud_pts)
         valid_local = np.where(new_valid)[0]
 
-        for j, tri_local in enumerate(valid_local):
-            cld_idx = base_cloud_idx + j
-            cloud_pts.append(new_pts3d[tri_local])
+        added_new = 0
+        for tri_local in valid_local:
+            pt = new_pts3d[tri_local]
+            # Doble chequeo: triangulate_points ya filtra, pero si algo se cuela
+            # por precision de punto flotante lo descartamos aqui.
+            if not _is_point_valid(pt):
+                continue
+            cld_idx = base_cloud_idx + added_new
+            cloud_pts.append(pt)
             kp_to_cloud[(tri_j, int(ki_prev_arr[tri_local]))] = cld_idx
             kp_to_cloud[(i, int(ki_curr_arr[tri_local]))] = cld_idx
+            added_new += 1
 
-        log.info("\tImagen %d: +%d nuevos puntos 3D", i, len(valid_local))
+        log.info("\tImagen %d: +%d nuevos puntos 3D", i, added_new)
 
     stage_times["multiview"] = time.perf_counter() - t0
 
-    # 8. Recolectar nube final y filtrar outliers geometricos
+    # 8. Recolectar nube final y filtrar outliers geometricos con IQR estandar
     pts3d_all = np.array(cloud_pts, dtype=np.float64)
 
-    # Filtro IQR: eliminar puntos mas alla de 3*IQR del percentil 25-75 en cada eje.
-    q25 = np.percentile(pts3d_all, 25, axis=0)
-    q75 = np.percentile(pts3d_all, 75, axis=0)
-    iqr = q75 - q25
-    iqr = np.where(iqr < 1e-9, 1.0, iqr)
-    inlier_mask = np.all(
-        (pts3d_all >= q25 - 5.0 * iqr) & (pts3d_all <= q75 + 5.0 * iqr),
-        axis=1,
-    )
-    n_before = len(pts3d_all)
-    pts3d_all = pts3d_all[inlier_mask]
-    log.info(
-        "\tFiltro IQR: %d -> %d puntos (eliminados %d outliers)",
-        n_before, len(pts3d_all), n_before - len(pts3d_all),
-    )
+    # Primer pase: eliminar cualquier punto no finito o fuera del umbral absoluto
+    # que haya sobrevivido hasta aqui (defensa en profundidad).
+    finite_mask = np.all(np.isfinite(pts3d_all), axis=1)
+    dist_mask = np.linalg.norm(pts3d_all, axis=1) < _MAX_POINT_DIST
+    pts3d_all = pts3d_all[finite_mask & dist_mask]
+    n_after_hard = len(pts3d_all)
+
+    # Segundo pase: IQR con factor 1.5 (estandar de Tukey).
+    # Con factor 5.0 los outliers de magnitud e+16 sesgaban q25/q75 y el
+    # filtro quedaba inutilizado; 1.5 elimina outliers estadisticos reales.
+    if n_after_hard > 0:
+        q25 = np.percentile(pts3d_all, 25, axis=0)
+        q75 = np.percentile(pts3d_all, 75, axis=0)
+        iqr = q75 - q25
+        iqr = np.where(iqr < 1e-9, 1.0, iqr)
+        inlier_mask = np.all(
+            (pts3d_all >= q25 - _IQR_FACTOR * iqr) & (pts3d_all <= q75 + _IQR_FACTOR * iqr),
+            axis=1,
+        )
+        n_before_iqr = len(pts3d_all)
+        pts3d_all = pts3d_all[inlier_mask]
+        log.info(
+            "\tFiltro IQR (factor=%.1f): %d -> %d puntos (eliminados %d outliers)",
+            _IQR_FACTOR, n_before_iqr, len(pts3d_all), n_before_iqr - len(pts3d_all),
+        )
+    else:
+        log.warn("\tNo quedaron puntos validos tras el filtro de distancia absoluta.")
 
     # 9. Calcular metricas
     rep_errors = reprojection_errors(pts3d_init, pts2d_init, k_matrix, r0, t0_vec)
