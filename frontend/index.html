@@ -3,27 +3,82 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visor de Nube de Puntos</title>
+    <title>Visor 3D — SfM Reconstructor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/src/styles/main.css">
 </head>
 <body>
-    <header>
-        <h1>Reconstruccion 3D SfM</h1>
-    </header>
-    <main style="display: flex; gap: 20px; padding: 20px;">
-        <aside style="width: 300px;">
-            <form id="upload-form">
-                <label for="image-input">Sube las imagenes del dataset:</label>
-                <input type="file" id="image-input" multiple accept="image/*" style="margin: 10px 0;">
-                <button type="submit">Generar Reconstruccion</button>
-            </form>
-            <div id="metrics-container" style="margin-top: 20px;">
-                <p>Las metricas se mostraran aqui despues de procesar.</p>
+    <div id="app">
+
+        <header class="topbar">
+            <div class="topbar__brand">
+                <span class="topbar__dot"></span>
+                <span class="topbar__title">SfM Reconstructor</span>
             </div>
-        </aside>
-        <section id="viewer-container" style="flex-grow: 1; height: 80vh; background: #111;">
-        </section>
-    </main>
+            <div id="status-badge" class="badge badge--idle">— sin conexión</div>
+        </header>
+
+        <div class="workspace">
+
+            <aside class="sidebar">
+
+                <section class="panel">
+                    <h2 class="panel__label">Dataset activo</h2>
+                    <select id="dataset-select" class="select">
+                        <option value="controlgamecube">controlgamecube</option>
+                        <option value="apple_co3d">apple_co3d</option>
+                    </select>
+                </section>
+
+                <section class="panel">
+                    <h2 class="panel__label">Subir imágenes</h2>
+                    <p class="panel__hint">ZIP o selección múltiple (.jpg / .png)</p>
+                    <label class="file-drop" id="file-drop">
+                        <span id="file-label">Arrastra o haz clic aquí</span>
+                        <input type="file" id="image-input" multiple accept="image/*,.zip" hidden>
+                    </label>
+                    <button id="upload-btn" class="btn btn--primary" disabled>
+                        Reconstruir
+                    </button>
+                    <div id="upload-status" class="upload-status hidden"></div>
+                </section>
+
+                <section class="panel panel--metrics" id="metrics-panel">
+                    <h2 class="panel__label">Métricas del pipeline</h2>
+                    <div id="metrics-container" class="metrics">
+                        <div class="metrics__loading">
+                            <span class="spinner"></span> cargando…
+                        </div>
+                    </div>
+                </section>
+
+                <section class="panel panel--info">
+                    <h2 class="panel__label">Controles del visor</h2>
+                    <ul class="controls-list">
+                        <li><kbd>click + drag</kbd> Rotar</li>
+                        <li><kbd>scroll</kbd> Zoom</li>
+                        <li><kbd>click derecho</kbd> Pan</li>
+                    </ul>
+                </section>
+
+            </aside>
+
+            <main class="viewer-wrap">
+                <div id="viewer-container" class="viewer">
+                    <div class="viewer__loader" id="viewer-loader">
+                        <span class="spinner spinner--lg"></span>
+                        <p>Cargando nube de puntos…</p>
+                    </div>
+                </div>
+                <div class="viewer__footer">
+                    <span id="cloud-info" class="viewer__info">—</span>
+                </div>
+            </main>
+
+        </div>
+    </div>
     <script type="module" src="/src/main.js"></script>
 </body>
 </html>
