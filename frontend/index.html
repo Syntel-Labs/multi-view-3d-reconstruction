@@ -1,22 +1,29 @@
 <!doctype html>
 <html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>multi-view-3d-reconstruction</title>
-    <link rel="stylesheet" href="/src/styles/main.css" />
-  </head>
-  <body>
-    <div id="app">
-      <header>
-        <h1>Reconstruccion 3D multi-vista</h1>
-      </header>
-      <main>
-        <section id="upload-panel"></section>
-        <section id="viewer"></section>
-        <section id="metrics-panel"></section>
-      </main>
-    </div>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visor de Nube de Puntos</title>
+    <link rel="stylesheet" href="/src/styles/main.css">
+</head>
+<body>
+    <header>
+        <h1>Reconstruccion 3D SfM</h1>
+    </header>
+    <main style="display: flex; gap: 20px; padding: 20px;">
+        <aside style="width: 300px;">
+            <form id="upload-form">
+                <label for="image-input">Sube las imagenes del dataset:</label>
+                <input type="file" id="image-input" multiple accept="image/*" style="margin: 10px 0;">
+                <button type="submit">Generar Reconstruccion</button>
+            </form>
+            <div id="metrics-container" style="margin-top: 20px;">
+                <p>Las metricas se mostraran aqui despues de procesar.</p>
+            </div>
+        </aside>
+        <section id="viewer-container" style="flex-grow: 1; height: 80vh; background: #111;">
+        </section>
+    </main>
     <script type="module" src="/src/main.js"></script>
-  </body>
+</body>
 </html>
