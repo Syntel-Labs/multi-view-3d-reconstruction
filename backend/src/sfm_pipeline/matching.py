@@ -46,7 +46,6 @@ def match_descriptors(
     ]
     return good_matches
 
-
 def match_windowed(
     desc_arrays: list[np.ndarray],
     detector: str = "sift",
@@ -80,7 +79,7 @@ def match_windowed(
     matcher = cv2.BFMatcher(norm_type, crossCheck=False)
 
     results: dict[tuple[int, int], np.ndarray] = {}
-    n_images = len(desc_arrays)  # nombre distinto para no colisionar con n_lowe
+    n_images = len(desc_arrays)
 
     for i in range(n_images):
         desc_i = desc_arrays[i]
@@ -91,21 +90,45 @@ def match_windowed(
             desc_j = desc_arrays[j]
             if desc_j is None or len(desc_j) == 0:
                 continue
-
-            # knnMatch requiere al menos 2 descriptores en la imagen B.
             if len(desc_j) < 2:
                 continue
 
             raw = matcher.knnMatch(desc_i, desc_j, k=2)
-
             good = [
                 (m.queryIdx, m.trainIdx)
-                for m, n_lowe in raw   # n_lowe evita shadowing de n_images
+                for m, n_lowe in raw
                 if m.distance < ratio * n_lowe.distance
             ]
-
             if good:
                 results[(i, j)] = np.array(good, dtype=np.int32)
+
+    # ── Matching circular ──────────────────────────────────────────────
+    # Conecta los últimos `window` frames con los primeros para cerrar
+    # el círculo cuando el video da 360°.
+    for i in range(max(0, n_images - window), n_images):
+        desc_i = desc_arrays[i]
+        if desc_i is None or len(desc_i) == 0:
+            continue
+
+        for j in range(0, min(window, n_images)):
+            if j >= i:
+                continue
+            if (i, j) in results or (j, i) in results:
+                continue
+
+            desc_j = desc_arrays[j]
+            if desc_j is None or len(desc_j) < 2:
+                continue
+
+            raw = matcher.knnMatch(desc_i, desc_j, k=2)
+            good = [
+                (m.queryIdx, m.trainIdx)
+                for m, n_lowe in raw
+                if m.distance < ratio * n_lowe.distance
+            ]
+            if good:
+                results[(i, j)] = np.array(good, dtype=np.int32)
+    # ──────────────────────────────────────────────────────────────────
 
     return results
 

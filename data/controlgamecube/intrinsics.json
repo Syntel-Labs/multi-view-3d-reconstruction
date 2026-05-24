@@ -1,12 +1,12 @@
 {
-  "device_id": "unknown-whatsapp-video",
-  "device_model": "unknown",
-  "image_width": 478,
-  "image_height": 850,
-  "focal_length_px": 1020.0,
-  "principal_point_px": [239.0, 425.0],
-  "sensor_width_mm": 0.0,
-  "exif_focal_length_mm": 0.0,
+  "device_id": "tecno-kl4s",
+  "device_model": "TECNO KL4s (Spark Go 1S)",
+  "image_width": 4160,
+  "image_height": 3120,
+  "focal_length_px": 3249.2,
+  "principal_point_px": [2080.0, 1560.0],
+  "sensor_width_mm": 4.659,
+  "exif_focal_length_mm": 3.64,
   "exif_focal_length_35mm": 0.0,
-  "notes": "EXIF perdido por compresion WhatsApp. focal_length_px estimado con heuristica f=1.2*max(W,H). Ajustar si se conoce el dispositivo."
+  "notes": "focal_px estimada con pixel_size=1.12um tipico de sensor 13MP gama baja. Sin FocalLengthIn35mmFilm en EXIF."
 }
