@@ -1,7 +1,7 @@
 import cv2
 from pathlib import Path
 
-video_path = "/home/donmathiuz/Vídeos/VID_20260524_043307.mp4"
+video_path = "/home/donmathiuz/Vídeos/VID_20260524_043607.mp4"
 output_dir = Path("/home/donmathiuz/multi-view-3d-reconstruction/data/controlgamecube/images")
 output_dir.mkdir(parents=True, exist_ok=True)
 

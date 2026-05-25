@@ -34,13 +34,13 @@ from sfm_pipeline.utils import (
 
 WINDOW = 20
 
-_MAX_POINT_DIST = 1e4
+_MAX_POINT_DIST = 1e5
 
-_IQR_FACTOR = 3.0
+_IQR_FACTOR = 2.0
 
-_MIN_PARALLAX_DEG = 0.05
+_MIN_PARALLAX_DEG = 0.01
 
-_MAX_REPROJ_ERROR = 4.0
+_MAX_REPROJ_ERROR = 8.0
 
 _INIT_PAIR_CANDIDATES = 15
 
@@ -126,7 +126,7 @@ def _select_best_init_pair(
     log,
 ):
     top_pairs = sorted(
-        [p for p in matches_dict if len(matches_dict[p]) >= 80],
+        [p for p in matches_dict if len(matches_dict[p]) >= 50],
         key=lambda p: len(matches_dict[p]),
         reverse=True,
     )[:_INIT_PAIR_CANDIDATES]
@@ -238,6 +238,54 @@ def run_pipeline(
         raise RuntimeError("Muy pocas imágenes")
 
     # =====================================================
+    # RESIZE CONFIG
+    # =====================================================
+    # Con imágenes 6000×4000 en un contenedor de 4 GB,
+    # SIFT sin límite explota la RAM. Redimensionamos a
+    # MAX_DIM px en el lado mayor y escalamos K en consecuencia
+    # para que toda la geometría siga siendo coherente.
+    MAX_DIM = 1600
+
+    # Calcular escala real usando la primera imagen
+    _probe = preprocess.load_image(image_paths[0], grayscale=True)
+    _h, _w = _probe.shape[:2]
+    del _probe
+    _scale = min(1.0, MAX_DIM / max(_h, _w))
+
+    if _scale < 1.0:
+        # Escalar K: fx, fy, cx, cy × scale; fila 2 queda [0,0,1]
+        k_matrix = k_matrix.copy()
+        k_matrix[0, 0] *= _scale   # fx
+        k_matrix[1, 1] *= _scale   # fy
+        k_matrix[0, 2] *= _scale   # cx
+        k_matrix[1, 2] *= _scale   # cy
+        log.info(
+            "\tRedimensionando imágenes a %.0f%% (MAX_DIM=%d)",
+            _scale * 100,
+            MAX_DIM,
+        )
+        log.info(
+            "\tfx escalado: %.1f px  cx=%.1f  cy=%.1f",
+            k_matrix[0, 0],
+            k_matrix[0, 2],
+            k_matrix[1, 2],
+        )
+    else:
+        log.info("\tImágenes dentro del límite — sin redimensionar")
+
+    def _load_gray_resized(path: Path) -> np.ndarray:
+        """Cargar, convertir a gris y redimensionar si es necesario.
+        Libera la imagen BGR antes de retornar para minimizar pico de RAM."""
+        img = preprocess.load_image(path)
+        gray = preprocess.to_grayscale(img)
+        del img
+        if _scale < 1.0:
+            new_w = int(gray.shape[1] * _scale)
+            new_h = int(gray.shape[0] * _scale)
+            gray = cv2.resize(gray, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        return gray
+
+    # =====================================================
     # FEATURES
     # =====================================================
 
@@ -248,14 +296,15 @@ def run_pipeline(
     desc_arrays = []
 
     for idx, path in enumerate(image_paths):
-        img = preprocess.load_image(path)
 
-        gray = preprocess.to_grayscale(img)
+        gray = _load_gray_resized(path)
 
         if detector == "orb":
             kps, des = features.detect_orb(gray)
         else:
-            kps, des = features.detect_sift(gray)
+            kps, des = features.detect_sift(gray, n_features=4000)
+
+        del gray  # liberar inmediatamente — solo guardamos kps y des
 
         pts = features.keypoints_to_array(kps)
 
@@ -441,42 +490,80 @@ def run_pipeline(
         kp_to_cloud[(cam_b, int(kb))] = idx
 
     # =====================================================
-    # INCREMENTAL
+    # INCREMENTAL  (BFS desde el par inicial)
     # =====================================================
 
     log.section("INCREMENTAL")
 
     pnp_ratios = []
 
-    for i in range(n_imgs):
+    # ----------------------------------------------------------
+    # Construir cola BFS: expandir desde {cam_a, cam_b} hacia
+    # los vecinos con más matches primero, luego el resto.
+    # ----------------------------------------------------------
+    from collections import deque
 
-        if camera_rs[i] is not None:
+    _MAX_RETRIES = 3
+    retry_count: dict[int, int] = {}
+
+    registered = {cam_a, cam_b}
+
+    # Vecinos directos del seed ordenados por nº de matches (desc)
+    seed_neighbors: list[tuple[int, int]] = []  # (n_matches, cam_id)
+    for (a, b) in matches_dict:
+        if a in registered and b not in registered:
+            seed_neighbors.append((len(matches_dict[(a, b)]), b))
+        elif b in registered and a not in registered:
+            seed_neighbors.append((len(matches_dict[(a, b)]), a))
+
+    seed_neighbors.sort(reverse=True)
+
+    visited: set[int] = set(registered)
+    queue: deque[int] = deque(nb for _, nb in seed_neighbors)
+
+    # Agregar el resto de imágenes al final por si hay componentes
+    # desconectadas del seed
+    for i in range(n_imgs):
+        if i not in visited and i not in queue:
+            queue.append(i)
+
+    while queue:
+
+        i = queue.popleft()
+
+        if i in visited:
             continue
 
+        if camera_rs[i] is not None:
+            visited.add(i)
+            continue
+
+        # --------------------------------------------------
+        # Recolectar correspondencias 3D-2D para PnP
+        # Buscar en ambas direcciones del par (j,i) y (i,j)
+        # --------------------------------------------------
         pts3d_pnp = []
-
         pts2d_pnp = []
+        used: set[int] = set()
 
-        used = set()
+        for (a, b) in matches_dict:
+            # Determinar si este par conecta una cámara registrada con i
+            if a == i and camera_rs[b] is not None:
+                j, flip = b, True   # matches guardados como (b→i), índices invertidos
+            elif b == i and camera_rs[a] is not None:
+                j, flip = a, False
+            else:
+                continue
 
-        source_pairs = sorted(
-            [
-                (j, i)
-                for (j, k) in matches_dict
-                if k == i and camera_rs[j] is not None
-            ],
-            reverse=True,
-        )
-
-        for (j, _) in source_pairs:
-
-            pair = matches_dict[(j, i)]
+            pair = matches_dict[(a, b)]
 
             for row in pair:
-
-                kj = int(row[0])
-
-                ki = int(row[1])
+                # flip=False → a=j, b=i → row[0]=kj, row[1]=ki
+                # flip=True  → a=i, b=j → row[0]=ki, row[1]=kj
+                if flip:
+                    kj, ki = int(row[1]), int(row[0])
+                else:
+                    kj, ki = int(row[0]), int(row[1])
 
                 cloud_idx = kp_to_cloud.get((j, kj))
 
@@ -492,17 +579,21 @@ def run_pipeline(
                     continue
 
                 pts3d_pnp.append(pt3d)
-
                 pts2d_pnp.append(kp_arrays[i][ki])
-
                 used.add(cloud_idx)
 
         if len(pts3d_pnp) < min_matches:
-            log.warn("\tImagen %d: insuficientes corr", i)
+            # Reintentar más tarde (hasta _MAX_RETRIES veces)
+            retries = retry_count.get(i, 0)
+            if retries < _MAX_RETRIES:
+                retry_count[i] = retries + 1
+                queue.append(i)   # volver a encolar al final
+            else:
+                log.warn("\tImagen %d: insuficientes corr (%d pts3d) — descartada", i, len(pts3d_pnp))
+                visited.add(i)
             continue
 
         pts3d_pnp = np.array(pts3d_pnp, dtype=np.float64)
-
         pts2d_pnp = np.array(pts2d_pnp, dtype=np.float32)
 
         success, rvec, tvec, inliers = cv2.solvePnPRansac(
@@ -515,56 +606,77 @@ def run_pipeline(
             iterationsCount=5000,
         )
 
-        if not success or inliers is None:
-            continue
-
-        if len(inliers) < 8:
+        if not success or inliers is None or len(inliers) < 8:
+            visited.add(i)
             continue
 
         if not _is_pose_valid(rvec, tvec):
+            visited.add(i)
             continue
 
         r_i, _ = cv2.Rodrigues(rvec)
-
         t_i = tvec
 
         camera_rs[i] = r_i
-
         camera_ts[i] = t_i
+        visited.add(i)
+        registered.add(i)
 
         ratio = len(inliers) / len(pts3d_pnp)
-
         pnp_ratios.append(ratio)
 
-        log.info(
-            "\tCam %d registrada -> ratio %.2f",
-            i,
-            ratio,
-        )
+        log.info("\tCam %d registrada -> ratio %.2f (%d/%d corr)", i, ratio, len(inliers), len(pts3d_pnp))
+
+        # Encolar vecinos de i con prioridad (más matches primero)
+        new_neighbors: list[tuple[int, int]] = []
+        for (a, b) in matches_dict:
+            if a == i and b not in visited:
+                new_neighbors.append((len(matches_dict[(a, b)]), b))
+            elif b == i and a not in visited:
+                new_neighbors.append((len(matches_dict[(a, b)]), a))
+
+        new_neighbors.sort(reverse=True)
+        for _, nb in new_neighbors:
+            if nb not in visited:
+                queue.appendleft(nb)  # alta prioridad: expandir el frente
 
         # =============================================
-        # TRIANGULATE NEW
+        # TRIANGULATE NEW  (contra la cámara registrada
+        # con más matches compartidos con i)
         # =============================================
 
-        prev_cam = max(
-            [
-                j
-                for j in range(i)
-                if camera_rs[j] is not None
-            ]
-        )
+        # Elegir el mejor par registrado para triangular
+        best_ref: int | None = None
+        best_ref_matches = 0
+        for (a, b) in matches_dict:
+            if a == i and camera_rs[b] is not None:
+                n = len(matches_dict[(a, b)])
+                if n > best_ref_matches:
+                    best_ref, best_ref_matches = b, n
+            elif b == i and camera_rs[a] is not None:
+                n = len(matches_dict[(a, b)])
+                if n > best_ref_matches:
+                    best_ref, best_ref_matches = a, n
 
-        pair_key = (prev_cam, i)
+        if best_ref is None:
+            continue
 
-        if pair_key not in matches_dict:
+        # Obtener el par en el orden correcto almacenado en matches_dict
+        if (best_ref, i) in matches_dict:
+            pair_key = (best_ref, i)
+            ref_is_a = True
+        elif (i, best_ref) in matches_dict:
+            pair_key = (i, best_ref)
+            ref_is_a = False
+        else:
             continue
 
         tri_pairs = matches_dict[pair_key]
 
-        p_prev = build_projection_matrix(
+        p_ref = build_projection_matrix(
             k_matrix,
-            camera_rs[prev_cam],
-            camera_ts[prev_cam],
+            camera_rs[best_ref],
+            camera_ts[best_ref],
         )
 
         p_curr = build_projection_matrix(
@@ -573,42 +685,36 @@ def run_pipeline(
             camera_ts[i],
         )
 
-        pts_prev = []
-
-        pts_curr = []
-
+        pts_ref_list = []
+        pts_curr_list = []
         pair_indices = []
 
         for row in tri_pairs:
+            if ref_is_a:
+                k_ref, k_i = int(row[0]), int(row[1])
+            else:
+                k_i, k_ref = int(row[0]), int(row[1])
 
-            kj = int(row[0])
-
-            ki = int(row[1])
-
-            if (prev_cam, kj) in kp_to_cloud:
+            if (best_ref, k_ref) in kp_to_cloud:
+                continue
+            if (i, k_i) in kp_to_cloud:
                 continue
 
-            if (i, ki) in kp_to_cloud:
-                continue
+            pts_ref_list.append(kp_arrays[best_ref][k_ref])
+            pts_curr_list.append(kp_arrays[i][k_i])
+            pair_indices.append((k_ref, k_i))
 
-            pts_prev.append(kp_arrays[prev_cam][kj])
-
-            pts_curr.append(kp_arrays[i][ki])
-
-            pair_indices.append((kj, ki))
-
-        if len(pts_prev) < 8:
+        if len(pts_ref_list) < 8:
             continue
 
-        pts_prev = np.array(pts_prev, dtype=np.float32)
-
-        pts_curr = np.array(pts_curr, dtype=np.float32)
+        pts_ref_arr = np.array(pts_ref_list, dtype=np.float32)
+        pts_curr_arr = np.array(pts_curr_list, dtype=np.float32)
 
         new_pts3d, valid_mask = triangulation.triangulate_points(
-            p_prev,
+            p_ref,
             p_curr,
-            pts_prev,
-            pts_curr,
+            pts_ref_arr,
+            pts_curr_arr,
         )
 
         added = 0
@@ -624,8 +730,8 @@ def run_pipeline(
                 continue
 
             angle = compute_parallax_angle(
-                pts_prev[idx],
-                pts_curr[idx],
+                pts_ref_arr[idx],
+                pts_curr_arr[idx],
                 k_matrix,
             )
 
@@ -634,15 +740,15 @@ def run_pipeline(
 
             err1 = reprojection_error(
                 pt3d,
-                pts_prev[idx],
+                pts_ref_arr[idx],
                 k_matrix,
-                camera_rs[prev_cam],
-                camera_ts[prev_cam],
+                camera_rs[best_ref],
+                camera_ts[best_ref],
             )
 
             err2 = reprojection_error(
                 pt3d,
-                pts_curr[idx],
+                pts_curr_arr[idx],
                 k_matrix,
                 camera_rs[i],
                 camera_ts[i],
@@ -655,18 +761,15 @@ def run_pipeline(
                 continue
 
             cloud_idx = len(cloud_pts)
-
             cloud_pts.append(pt3d)
 
-            kj, ki = pair_indices[idx]
-
-            kp_to_cloud[(prev_cam, kj)] = cloud_idx
-
-            kp_to_cloud[(i, ki)] = cloud_idx
+            k_ref, k_i = pair_indices[idx]
+            kp_to_cloud[(best_ref, k_ref)] = cloud_idx
+            kp_to_cloud[(i, k_i)] = cloud_idx
 
             added += 1
 
-        log.info("\tCam %d -> +%d puntos", i, added)
+        log.info("\tCam %d -> +%d puntos nuevos", i, added)
 
     # =====================================================
     # FINAL FILTER

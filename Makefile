@@ -2,6 +2,11 @@
 # Servicios: hartley (backend SfM), galileo (frontend Three.js).
 
 SHELL := /bin/bash
+DETECTOR  ?= sift
+LOWE      ?= 0.75
+RANSAC    ?= 1.0
+MINMATCH  ?= 8
+
 
 .PHONY: help build up up-fg down restart logs logs-backend logs-frontend ps \
         shell-backend shell-frontend pipeline lint lint-fix clean reset \
@@ -44,9 +49,13 @@ shell-backend: ## Abrir shell en backend
 shell-frontend: ## Abrir shell en frontend
 	docker compose exec galileo sh
 
-pipeline: ## Correr pipeline SfM por CLI; uso: make pipeline DATASET=<nombre>
-	docker compose exec hartley python -m sfm_pipeline.cli --dataset $(DATASET)
-
+pipeline: ## Correr pipeline SfM; uso: make pipeline DATASET=<nombre> [DETECTOR=sift|orb] [LOWE=0.75] [RANSAC=1.0]
+	docker compose exec hartley python -m sfm_pipeline.cli \
+		--dataset $(DATASET) \
+		--detector $(DETECTOR) \
+		--lowe-ratio $(LOWE) \
+		--ransac-threshold $(RANSAC) \
+		--min-matches $(MINMATCH)
 lint: ## Linter del backend (ruff)
 	docker compose exec hartley ruff check src
 

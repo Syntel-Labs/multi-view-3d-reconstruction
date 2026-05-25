@@ -1,12 +1,12 @@
 {
-  "device_id": "tecno-kl4s",
-  "device_model": "TECNO KL4s (Spark Go 1S)",
-  "image_width": 4160,
-  "image_height": 3120,
-  "focal_length_px": 3249.2,
-  "principal_point_px": [2080.0, 1560.0],
-  "sensor_width_mm": 4.659,
-  "exif_focal_length_mm": 3.64,
-  "exif_focal_length_35mm": 0.0,
-  "notes": "focal_px estimada con pixel_size=1.12um tipico de sensor 13MP gama baja. Sin FocalLengthIn35mmFilm en EXIF."
+  "device_id": "sony-slt-a77v",
+  "device_model": "Sony SLT-A77V + DT 16-50mm F2.8 SSM",
+  "image_width": 6000,
+  "image_height": 4000,
+  "focal_length_px": 12766.0,
+  "principal_point_px": [3000.0, 2000.0],
+  "sensor_width_mm": 23.5,
+  "exif_focal_length_mm": 50.0,
+  "exif_focal_length_35mm": 75,
+  "notes": "focal_px = 50mm / (23.5mm / 6000px). Sensor APS-C Sony 24MP. Lente Sony DT 16-50mm F2.8 SSM."
 }

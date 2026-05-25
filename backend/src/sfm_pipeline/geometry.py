@@ -98,31 +98,12 @@ def estimate_fundamental(
     return F, mask
 
 
-def fundamental_to_essential(
-    F: np.ndarray,
-    K: np.ndarray,
-    verbose: bool = False,
-    log_level: int = logging.DEBUG,
-) -> np.ndarray:
-    """Calcular la matriz esencial E = K^T F K.
-
-    Fuerza la estructura de E (rango 2, sigma_1 == sigma_2) mediante SVD.
-
-    Args:
-        F: matriz fundamental (3, 3).
-        K: matriz intrinseca de la camara (3, 3).
-        verbose: si True, imprime y loguea valores singulares antes y despues.
-        log_level: nivel de logging.
-
-    Returns:
-        E: matriz esencial (3, 3) con rango 2 forzado.
-    """
+def fundamental_to_essential(F, K, verbose=False, log_level=logging.DEBUG):
     log = PipelineLogger("E", verbose=verbose, log_level=log_level)
-
     log.section("E = K^T F K")
+
     E_raw = K.T @ F @ K
     _, s_raw, _ = np.linalg.svd(E_raw)
-
     log.stats("Singulares de E antes de correccion", {
         "sigma_1": float(s_raw[0]),
         "sigma_2": float(s_raw[1]),
@@ -130,8 +111,15 @@ def fundamental_to_essential(
         "diferencia_s1_s2": float(abs(s_raw[0] - s_raw[1])),
     })
 
-    # Forzar rango 2: sigma_1 == sigma_2 == promedio, sigma_3 == 0
     U, s, Vt = np.linalg.svd(E_raw)
+
+    # ── FIX: forzar det(U) = +1 y det(Vt) = +1 ──────────────────────
+    if np.linalg.det(U) < 0:
+        U *= -1
+    if np.linalg.det(Vt) < 0:
+        Vt *= -1
+    # ──────────────────────────────────────────────────────────────────
+
     s_avg = (s[0] + s[1]) / 2.0
     s_corrected = np.array([s_avg, s_avg, 0.0])
     E = U @ np.diag(s_corrected) @ Vt
@@ -147,7 +135,6 @@ def fundamental_to_essential(
     log.ok("rango 2 forzado correctamente")
 
     return E
-
 
 def recover_pose(
     E: np.ndarray,

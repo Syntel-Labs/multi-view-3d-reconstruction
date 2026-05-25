@@ -6,7 +6,7 @@ import numpy as np
 
 def detect_sift(
     image_gray: np.ndarray,
-    n_features: int = 0,
+    n_features: int = 4000,
 ) -> tuple[list, np.ndarray]:
     """Detectar keypoints y calcular descriptores SIFT sobre una imagen en grises.
 

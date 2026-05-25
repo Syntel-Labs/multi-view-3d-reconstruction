@@ -1,7 +1,12 @@
 {
-  "device_id": "co3d-apple-103_12148_21353",
-  "focal_length_px": 1342.99,
-  "principal_point_px": [353.5, 629.5],
-  "image_width": 707,
-  "image_height": 1259
+  "device_id": "tecno-kl4s",
+  "device_model": "TECNO KL4s (Spark Go 1S)",
+  "image_width": 1920,
+  "image_height": 1080,
+  "focal_length_px": 1499.6,
+  "principal_point_px": [960.0, 540.0],
+  "sensor_width_mm": 4.659,
+  "exif_focal_length_mm": 3.64,
+  "exif_focal_length_35mm": 0.0,
+  "notes": "Imágenes extraídas de video 1080p. focal_px escalada desde resolución nativa 4160px. Pixel size 1.12um típico sensor 13MP gama baja."
 }

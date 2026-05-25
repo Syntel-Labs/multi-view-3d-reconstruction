@@ -96,7 +96,9 @@ def match_windowed(
             raw = matcher.knnMatch(desc_i, desc_j, k=2)
             good = [
                 (m.queryIdx, m.trainIdx)
-                for m, n_lowe in raw
+                for pair in raw
+                if len(pair) == 2
+                for m, n_lowe in [pair]
                 if m.distance < ratio * n_lowe.distance
             ]
             if good:
@@ -123,7 +125,9 @@ def match_windowed(
             raw = matcher.knnMatch(desc_i, desc_j, k=2)
             good = [
                 (m.queryIdx, m.trainIdx)
-                for m, n_lowe in raw
+                for pair in raw
+                if len(pair) == 2
+                for m, n_lowe in [pair]
                 if m.distance < ratio * n_lowe.distance
             ]
             if good:
