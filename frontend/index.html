@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visor 3D — SfM Reconstructor</title>
+    <title>SfM Reconstructor</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
@@ -25,32 +25,80 @@
             <aside class="sidebar">
 
                 <section class="panel">
-                    <h2 class="panel__label">Dataset activo</h2>
+                    <h2 class="panel__label">Dataset</h2>
                     <select id="dataset-select" class="select">
-                        <option value="controlgamecube">controlgamecube</option>
-                        <option value="apple_co3d">apple_co3d</option>
+                        <option value="">Cargando datasets…</option>
                     </select>
+                    <button id="load-btn" class="btn btn--secondary" style="margin-top:8px">
+                        Ver nube existente
+                    </button>
                 </section>
 
                 <section class="panel">
-                    <h2 class="panel__label">Subir imágenes</h2>
-                    <p class="panel__hint">ZIP o selección múltiple (.jpg / .png)</p>
-                    <label class="file-drop" id="file-drop">
-                        <span id="file-label">Arrastra o haz clic aquí</span>
-                        <input type="file" id="image-input" multiple accept="image/*,.zip" hidden>
-                    </label>
-                    <button id="upload-btn" class="btn btn--primary" disabled>
-                        Reconstruir
+                    <h2 class="panel__label">Parámetros del pipeline</h2>
+
+                    <div class="param-grid">
+                        <label class="param">
+                            <span class="param__name">Detector</span>
+                            <select id="p-detector" class="select select--sm">
+                                <option value="sift" selected>SIFT</option>
+                                <option value="orb">ORB</option>
+                            </select>
+                        </label>
+
+                        <label class="param">
+                            <span class="param__name">N Features</span>
+                            <input id="p-nfeatures" type="number" class="input--sm" value="4000" min="100" max="20000" step="500">
+                        </label>
+
+                        <label class="param">
+                            <span class="param__name">Lowe ratio</span>
+                            <input id="p-lowe" type="number" class="input--sm" value="0.72" min="0.1" max="1.0" step="0.01">
+                        </label>
+
+                        <label class="param">
+                            <span class="param__name">RANSAC threshold</span>
+                            <input id="p-ransac" type="number" class="input--sm" value="1.0" min="0.1" max="10.0" step="0.1">
+                        </label>
+
+                        <label class="param">
+                            <span class="param__name">Min matches</span>
+                            <input id="p-minmatches" type="number" class="input--sm" value="8" min="4" max="100" step="1">
+                        </label>
+
+                        <label class="param">
+                            <span class="param__name">Window</span>
+                            <input id="p-window" type="number" class="input--sm" value="20" min="1" max="50" step="1">
+                        </label>
+
+                        <label class="param">
+                            <span class="param__name">IQR factor</span>
+                            <input id="p-iqr" type="number" class="input--sm" value="2.0" min="0.5" max="10.0" step="0.5">
+                        </label>
+
+                        <label class="param">
+                            <span class="param__name">Max reproj error</span>
+                            <input id="p-maxreproj" type="number" class="input--sm" value="8.0" min="1.0" max="50.0" step="0.5">
+                        </label>
+
+                        <label class="param">
+                            <span class="param__name">Min parallax (°)</span>
+                            <input id="p-parallax" type="number" class="input--sm" value="0.01" min="0.001" max="5.0" step="0.01">
+                        </label>
+                    </div>
+                </section>
+
+                <section class="panel">
+                    <button id="run-btn" class="btn btn--primary">
+                        Ejecutar pipeline
                     </button>
-                    <div id="upload-status" class="upload-status hidden"></div>
+                    <div id="pipeline-status" class="pipeline-status hidden"></div>
                 </section>
 
                 <section class="panel panel--metrics" id="metrics-panel">
-                    <h2 class="panel__label">Métricas del pipeline</h2>
+                    <h2 class="panel__label">Métricas</h2>
                     <div id="metrics-container" class="metrics">
-                        <div class="metrics__loading">
-                            <span class="spinner"></span> cargando…
-                        </div>
+                        <p class="metrics__empty">Selecciona un dataset y ejecuta el pipeline o carga una nube existente.</p>
                     </div>
                 </section>
 
@@ -67,9 +115,12 @@
 
             <main class="viewer-wrap">
                 <div id="viewer-container" class="viewer">
-                    <div class="viewer__loader" id="viewer-loader">
+                    <div class="viewer__loader" id="viewer-loader" style="display:none">
                         <span class="spinner spinner--lg"></span>
-                        <p>Cargando nube de puntos…</p>
+                        <p id="viewer-loader-text">Cargando nube de puntos…</p>
+                    </div>
+                    <div class="viewer__empty" id="viewer-empty">
+                        <p>Selecciona un dataset y ejecuta el pipeline<br>o carga una nube existente</p>
                     </div>
                 </div>
                 <div class="viewer__footer">

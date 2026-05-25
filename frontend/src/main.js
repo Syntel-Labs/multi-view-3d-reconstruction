@@ -1,78 +1,109 @@
-
 import { initViewer } from './viewer/pointCloudViewer.js';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:8000';
 
-const datasetSelect  = document.getElementById('dataset-select');
-const uploadBtn      = document.getElementById('upload-btn');
-const fileInput      = document.getElementById('image-input');
-const fileDrop       = document.getElementById('file-drop');
-const fileLabel      = document.getElementById('file-label');
-const metricsDiv     = document.getElementById('metrics-container');
-const uploadStatus   = document.getElementById('upload-status');
-const statusBadge    = document.getElementById('status-badge');
-const viewerLoader   = document.getElementById('viewer-loader');
-const cloudInfo      = document.getElementById('cloud-info');
-
-let activeDataset = datasetSelect.value;
+const datasetSelect   = document.getElementById('dataset-select');
+const loadBtn         = document.getElementById('load-btn');
+const runBtn          = document.getElementById('run-btn');
+const metricsDiv      = document.getElementById('metrics-container');
+const pipelineStatus  = document.getElementById('pipeline-status');
+const statusBadge     = document.getElementById('status-badge');
+const viewerLoader    = document.getElementById('viewer-loader');
+const viewerLoaderTxt = document.getElementById('viewer-loader-text');
+const viewerEmpty     = document.getElementById('viewer-empty');
+const cloudInfo       = document.getElementById('cloud-info');
 
 function setBadge(state, text) {
     statusBadge.className = `badge badge--${state}`;
     statusBadge.textContent = text;
 }
 
-function showLoader(visible) {
+function showLoader(visible, text) {
     viewerLoader.style.display = visible ? 'flex' : 'none';
+    if (text) viewerLoaderTxt.textContent = text;
+}
+
+function hideEmpty() {
+    if (viewerEmpty) viewerEmpty.style.display = 'none';
+}
+
+function showEmpty() {
+    if (viewerEmpty) viewerEmpty.style.display = 'flex';
 }
 
 function setCloudInfo(text) {
     cloudInfo.textContent = text;
 }
 
+function setPipelineStatus(text, isError) {
+    pipelineStatus.classList.remove('hidden', 'error', 'success');
+    if (isError) pipelineStatus.classList.add('error');
+    else pipelineStatus.classList.add('success');
+    pipelineStatus.textContent = text;
+}
+
+function getParams() {
+    return {
+        dataset:          datasetSelect.value,
+        detector:         document.getElementById('p-detector').value,
+        n_features:       parseInt(document.getElementById('p-nfeatures').value, 10),
+        lowe_ratio:       parseFloat(document.getElementById('p-lowe').value),
+        ransac_threshold: parseFloat(document.getElementById('p-ransac').value),
+        min_matches:      parseInt(document.getElementById('p-minmatches').value, 10),
+        window:           parseInt(document.getElementById('p-window').value, 10),
+        iqr_factor:       parseFloat(document.getElementById('p-iqr').value),
+        max_reproj_error: parseFloat(document.getElementById('p-maxreproj').value),
+        min_parallax:     parseFloat(document.getElementById('p-parallax').value),
+    };
+}
+
 async function checkHealth() {
     try {
         const r = await fetch(`${BACKEND}/health`);
         if (r.ok) {
-            setBadge('ok', ' backend ok');
-        } else {
-            setBadge('error', ' backend error');
+            setBadge('ok', 'backend ok');
+            return true;
         }
+        setBadge('error', 'backend error');
+        return false;
     } catch {
         setBadge('error', '✕ sin conexión');
+        return false;
     }
 }
 
-async function loadMetrics(dataset) {
-    metricsDiv.innerHTML = `
-        <div class="metrics__loading">
-            <span class="spinner"></span> cargando…
-        </div>`;
-
+async function loadDatasetList() {
     try {
-        const r = await fetch(`${BACKEND}/outputs/${dataset}/metrics`);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const m = await r.json();
-        renderMetrics(m);
-    } catch (e) {
-        metricsDiv.innerHTML = `<p class="metrics__error">No se encontraron métricas para <em>${dataset}</em>.<br>Ejecuta <code>make pipeline DATASET=${dataset}</code> primero.</p>`;
+        const r = await fetch(`${BACKEND}/datasets`);
+        if (!r.ok) return;
+        const data = await r.json();
+        datasetSelect.innerHTML = '';
+        for (const ds of data.datasets) {
+            const opt = document.createElement('option');
+            opt.value = ds.name;
+            opt.textContent = ds.name;
+            datasetSelect.appendChild(opt);
+        }
+    } catch {
+        datasetSelect.innerHTML = '<option value="">Error cargando datasets</option>';
     }
 }
 
 function renderMetrics(m) {
-    const reprErr = parseFloat(m.reprojection_error_mean ?? m.reprojection_error ?? 0);
-    const inliers  = parseFloat(m.ransac_inlier_ratio ?? 0) * 100;
+    const reprErr = parseFloat(m.reprojection_error_mean ?? 0);
+    const inliers = parseFloat(m.ransac_inlier_ratio ?? 0) * 100;
 
     const reprClass = reprErr < 1 ? '' : reprErr < 2 ? 'warn' : 'err';
     const inlierClass = inliers > 60 ? '' : inliers > 40 ? 'warn' : 'err';
 
     const rows = [
-        { key: 'Dataset',             val: m.dataset ?? '—',                        cls: '' },
-        { key: 'Imágenes',            val: m.num_images ?? '—',                     cls: '' },
-        { key: 'Cámaras registradas', val: m.cameras_registered ?? m.num_images ?? '—', cls: '' },
-        { key: 'Puntos 3D',           val: (m.num_3d_points ?? '—').toLocaleString?.() ?? m.num_3d_points ?? '—', cls: '' },
-        { key: 'Error reproy. medio', val: reprErr ? `${reprErr.toFixed(4)} px` : '—', cls: reprClass },
+        { key: 'Dataset',             val: m.dataset ?? '—',                                                   cls: '' },
+        { key: 'Imágenes',            val: m.num_images ?? '—',                                                 cls: '' },
+        { key: 'Puntos 3D',           val: (m.num_3d_points ?? 0).toLocaleString(),                             cls: '' },
+        { key: 'Error reproy. medio', val: reprErr ? `${reprErr.toFixed(4)} px` : '—',                          cls: reprClass },
         { key: 'Error reproy. med.',  val: m.reprojection_error_median != null ? `${parseFloat(m.reprojection_error_median).toFixed(4)} px` : '—', cls: reprClass },
-        { key: 'Inliers RANSAC',      val: inliers ? `${inliers.toFixed(1)} %` : '—', cls: inlierClass },
+        { key: 'Inliers RANSAC',      val: inliers ? `${inliers.toFixed(1)} %` : '—',                          cls: inlierClass },
+        { key: 'Tiempo total',        val: m.time_total != null ? `${m.time_total} s` : '—',                    cls: '' },
     ];
 
     metricsDiv.innerHTML = `<div class="metrics">
@@ -84,43 +115,56 @@ function renderMetrics(m) {
     </div>`;
 }
 
-async function loadDataset(dataset) {
-    activeDataset = dataset;
-    showLoader(true);
+async function loadExistingCloud(dataset) {
+    if (!dataset) return;
+
+    hideEmpty();
+    showLoader(true, 'Cargando nube de puntos…');
     setCloudInfo(`Cargando ${dataset}…`);
 
     const plyUrl = `${BACKEND}/outputs/${dataset}/cloud.ply`;
 
-    // Carga métricas en paralelo con el visor
-    loadMetrics(dataset);
+    try {
+        const r = await fetch(`${BACKEND}/outputs/${dataset}/metrics`);
+        if (r.ok) {
+            const m = await r.json();
+            renderMetrics(m);
+        } else {
+            metricsDiv.innerHTML = '<p class="metrics__empty">No hay métricas disponibles. Ejecuta el pipeline primero.</p>';
+        }
+    } catch {
+        metricsDiv.innerHTML = '<p class="metrics__empty">No hay métricas disponibles.</p>';
+    }
 
     try {
         await initViewer('viewer-container', plyUrl);
-        setCloudInfo(`${dataset} · ${plyUrl}`);
+        setCloudInfo(`${dataset} · nube cargada`);
     } catch {
-        setCloudInfo(`Error al cargar ${dataset}`);
+        setCloudInfo(`No se encontró nube para ${dataset}`);
+        showEmpty();
     } finally {
         showLoader(false);
     }
 }
 
-async function handleUpload() {
-    const files = fileInput.files;
-    if (!files.length) return;
+async function runPipeline() {
+    const dataset = datasetSelect.value;
+    if (!dataset) return;
 
-    const formData = new FormData();
-    for (const file of files) formData.append('images', file);
+    const params = getParams();
 
-    uploadStatus.className = 'upload-status';
-    uploadStatus.textContent = 'Enviando imágenes al pipeline…';
-    uploadStatus.classList.remove('hidden');
-    uploadBtn.disabled = true;
+    runBtn.disabled = true;
+    loadBtn.disabled = true;
+    hideEmpty();
+    showLoader(true, `Ejecutando pipeline sobre ${dataset}…\nEsto puede tardar varios minutos.`);
     setBadge('loading', '⟳ procesando…');
+    setPipelineStatus(`Pipeline iniciado para ${dataset}…`, false);
 
     try {
         const r = await fetch(`${BACKEND}/reconstruct`, {
             method: 'POST',
-            body: formData,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params),
         });
 
         if (!r.ok) {
@@ -129,54 +173,45 @@ async function handleUpload() {
         }
 
         const result = await r.json();
-        uploadStatus.textContent = `✓ Reconstrucción completada — dataset: ${result.dataset_id}`;
 
-        // Actualizar selector si el dataset es nuevo
-        if (![...datasetSelect.options].some(o => o.value === result.dataset_id)) {
-            const opt = new Option(result.dataset_id, result.dataset_id);
-            datasetSelect.add(opt);
+        renderMetrics(result);
+        setPipelineStatus(
+            `Pipeline completado: ${result.num_3d_points} puntos 3D, ` +
+            `${result.num_images} cámaras, ` +
+            `reproj error = ${result.reprojection_error_mean} px`,
+            false
+        );
+
+        setBadge('ok', 'backend ok');
+
+        showLoader(true, 'Cargando nube generada…');
+        const plyUrl = `${BACKEND}/outputs/${dataset}/cloud.ply`;
+        try {
+            await initViewer('viewer-container', plyUrl);
+            setCloudInfo(`${dataset} · ${result.num_3d_points} puntos`);
+        } catch {
+            setCloudInfo(`Error cargando nube de ${dataset}`);
         }
-        datasetSelect.value = result.dataset_id;
-        await loadDataset(result.dataset_id);
-        setBadge('ok', '● backend ok');
 
     } catch (e) {
-        uploadStatus.classList.add('error');
-        uploadStatus.textContent = `✕ ${e.message}`;
+        setPipelineStatus(`Error: ${e.message}`, true);
         setBadge('error', '✕ error');
+        showEmpty();
     } finally {
-        uploadBtn.disabled = false;
+        showLoader(false);
+        runBtn.disabled = false;
+        loadBtn.disabled = false;
     }
 }
 
-fileDrop.addEventListener('dragover', e => { e.preventDefault(); fileDrop.classList.add('drag-over'); });
-fileDrop.addEventListener('dragleave', () => fileDrop.classList.remove('drag-over'));
-fileDrop.addEventListener('drop', e => {
-    e.preventDefault();
-    fileDrop.classList.remove('drag-over');
-    const dt = e.dataTransfer;
-    if (dt.files.length) {
-        fileInput.files = dt.files;
-        fileLabel.textContent = `${dt.files.length} archivo(s) seleccionado(s)`;
-        uploadBtn.disabled = false;
-    }
+loadBtn.addEventListener('click', () => {
+    pipelineStatus.classList.add('hidden');
+    loadExistingCloud(datasetSelect.value);
 });
 
-fileDrop.addEventListener('click', () => fileInput.click());
+runBtn.addEventListener('click', runPipeline);
 
-fileInput.addEventListener('change', () => {
-    if (fileInput.files.length) {
-        fileLabel.textContent = `${fileInput.files.length} archivo(s) seleccionado(s)`;
-        uploadBtn.disabled = false;
-    }
-});
-
-datasetSelect.addEventListener('change', () => {
-    uploadStatus.classList.add('hidden');
-    loadDataset(datasetSelect.value);
-});
-
-uploadBtn.addEventListener('click', handleUpload);
-
-checkHealth();
-loadDataset(activeDataset);
+(async function init() {
+    const ok = await checkHealth();
+    if (ok) await loadDatasetList();
+})();

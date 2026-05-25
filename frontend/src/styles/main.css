@@ -1,12 +1,5 @@
-/* ============================================================
-   SfM Reconstructor — main.css
-   Tema: consola técnica / terminal dark
-   Layout: topbar fija + sidebar 300px + visor flex-1
-   ============================================================ */
-
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500&display=swap');
 
-/* ── Tokens ── */
 :root {
     --bg-base:       #0d0f11;
     --bg-surface:    #141618;
@@ -19,7 +12,7 @@
     --text-secondary:#8a8f96;
     --text-muted:    #555a61;
 
-    --accent:        #4fffb0;   /* verde terminal */
+    --accent:        #4fffb0;
     --accent-dim:    #1a4035;
     --accent-warn:   #ffb347;
     --accent-err:    #ff6b6b;
@@ -27,13 +20,12 @@
     --mono: 'Space Mono', monospace;
     --sans: 'DM Sans', system-ui, sans-serif;
 
-    --sidebar-w:     300px;
+    --sidebar-w:     320px;
     --topbar-h:      48px;
     --radius:        6px;
     --transition:    150ms ease;
 }
 
-/* ── Reset ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
@@ -46,7 +38,6 @@ html, body {
     -webkit-font-smoothing: antialiased;
 }
 
-/* ── App shell ── */
 #app {
     display: flex;
     flex-direction: column;
@@ -54,7 +45,6 @@ html, body {
     overflow: hidden;
 }
 
-/* ── Topbar ── */
 .topbar {
     height: var(--topbar-h);
     background: var(--bg-surface);
@@ -95,15 +85,6 @@ html, body {
     color: var(--text-primary);
 }
 
-.topbar__sub {
-    font-size: 11px;
-    color: var(--text-muted);
-    font-family: var(--mono);
-    padding-left: 8px;
-    border-left: 1px solid var(--border-accent);
-}
-
-/* ── Status badge ── */
 .badge {
     font-family: var(--mono);
     font-size: 11px;
@@ -118,14 +99,12 @@ html, body {
 .badge--error   { color: var(--accent-err);    border-color: #3d1f1f; background: #1e1010; }
 .badge--loading { color: var(--accent-warn);   border-color: #3d2f10; background: #1e1808; }
 
-/* ── Workspace ── */
 .workspace {
     display: flex;
     flex: 1;
     overflow: hidden;
 }
 
-/* ── Sidebar ── */
 .sidebar {
     width: var(--sidebar-w);
     flex-shrink: 0;
@@ -140,9 +119,8 @@ html, body {
 .sidebar::-webkit-scrollbar { width: 4px; }
 .sidebar::-webkit-scrollbar-thumb { background: var(--border-accent); border-radius: 2px; }
 
-/* ── Panel ── */
 .panel {
-    padding: 16px;
+    padding: 14px 16px;
     border-bottom: 1px solid var(--border);
 }
 
@@ -156,13 +134,6 @@ html, body {
     margin-bottom: 10px;
 }
 
-.panel__hint {
-    font-size: 11px;
-    color: var(--text-muted);
-    margin-bottom: 8px;
-}
-
-/* ── Select ── */
 .select {
     width: 100%;
     background: var(--bg-panel);
@@ -183,32 +154,47 @@ html, body {
 .select:hover  { border-color: var(--text-muted); }
 .select:focus  { outline: none; border-color: var(--accent); }
 
-/* ── File drop ── */
-.file-drop {
+.select--sm {
+    padding: 5px 8px;
+    font-size: 11px;
+}
+
+.param-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.param {
     display: flex;
     align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: 72px;
-    border: 1px dashed var(--border-accent);
-    border-radius: var(--radius);
-    margin-bottom: 10px;
-    font-size: 12px;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.param__name {
+    font-size: 11px;
     color: var(--text-secondary);
-    cursor: pointer;
-    transition: border-color var(--transition), background var(--transition);
-    text-align: center;
-    padding: 8px;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
-.file-drop:hover,
-.file-drop.drag-over {
-    border-color: var(--accent);
-    background: var(--accent-dim);
-    color: var(--accent);
+.input--sm {
+    width: 100px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-accent);
+    color: var(--text-primary);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 8px;
+    border-radius: var(--radius);
+    text-align: right;
+    transition: border-color var(--transition);
 }
 
-/* ── Buttons ── */
+.input--sm:hover  { border-color: var(--text-muted); }
+.input--sm:focus  { outline: none; border-color: var(--accent); }
+
 .btn {
     display: inline-flex;
     align-items: center;
@@ -240,30 +226,58 @@ html, body {
     cursor: not-allowed;
 }
 
-/* ── Upload status ── */
-.upload-status {
+.btn--secondary {
+    background: transparent;
+    color: var(--text-secondary);
+    border-color: var(--border-accent);
+}
+
+.btn--secondary:hover:not(:disabled) {
+    border-color: var(--text-muted);
+    color: var(--text-primary);
+}
+
+.btn--secondary:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.pipeline-status {
     margin-top: 10px;
-    font-size: 12px;
+    font-size: 11px;
     font-family: var(--mono);
     padding: 8px 10px;
     border-radius: var(--radius);
     border-left: 3px solid var(--accent);
     background: var(--bg-panel);
     color: var(--text-secondary);
+    white-space: pre-wrap;
+    line-height: 1.6;
 }
 
-.upload-status.error {
+.pipeline-status.error {
     border-left-color: var(--accent-err);
     color: var(--accent-err);
 }
 
+.pipeline-status.success {
+    border-left-color: var(--accent);
+    color: var(--accent);
+}
+
 .hidden { display: none !important; }
 
-/* ── Metrics ── */
 .metrics {
     display: flex;
     flex-direction: column;
     gap: 2px;
+}
+
+.metrics__empty {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--mono);
+    line-height: 1.6;
 }
 
 .metrics__loading {
@@ -279,7 +293,7 @@ html, body {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    padding: 6px 0;
+    padding: 5px 0;
     border-bottom: 1px solid var(--border);
 }
 
@@ -309,7 +323,6 @@ html, body {
     color: var(--accent-err);
 }
 
-/* ── Controls info ── */
 .panel--info { margin-top: auto; }
 
 .controls-list {
@@ -338,7 +351,6 @@ kbd {
     white-space: nowrap;
 }
 
-/* ── Viewer ── */
 .viewer-wrap {
     flex: 1;
     display: flex;
@@ -373,7 +385,22 @@ kbd {
     font-size: 12px;
     background: #0a0b0d;
     z-index: 5;
-    transition: opacity 0.4s;
+    text-align: center;
+    white-space: pre-wrap;
+    line-height: 1.8;
+}
+
+.viewer__empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 12px;
+    text-align: center;
+    line-height: 1.8;
 }
 
 .viewer__footer {
@@ -392,7 +419,6 @@ kbd {
     color: var(--text-muted);
 }
 
-/* ── Spinner ── */
 .spinner {
     width: 14px;
     height: 14px;

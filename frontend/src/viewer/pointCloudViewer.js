@@ -2,15 +2,29 @@ import * as THREE from 'three';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
-/**
- * Inicializa el visor dentro del elemento con el id dado y carga el PLY.
- * @param {string} containerId  - id del elemento contenedor
- * @param {string} plyUrl       - URL del archivo .ply (via backend)
- * @returns {Promise<void>}     - resuelve cuando el PLY está en escena, rechaza si falla
- */
+let currentRenderer = null;
+let currentAnimFrame = null;
+let currentResizeHandler = null;
+
+function cleanup() {
+    if (currentAnimFrame) cancelAnimationFrame(currentAnimFrame);
+    if (currentResizeHandler) window.removeEventListener('resize', currentResizeHandler);
+    if (currentRenderer) currentRenderer.dispose();
+    currentRenderer = null;
+    currentAnimFrame = null;
+    currentResizeHandler = null;
+}
+
 export function initViewer(containerId, plyUrl) {
+    cleanup();
+
     const container = document.getElementById(containerId);
-    container.innerHTML = '';
+
+    const loaderEl = document.getElementById('viewer-loader');
+    const emptyEl = document.getElementById('viewer-empty');
+
+    const oldCanvas = container.querySelector('canvas');
+    if (oldCanvas) oldCanvas.remove();
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0a0b0d);
@@ -19,25 +33,25 @@ export function initViewer(containerId, plyUrl) {
         60,
         container.clientWidth / container.clientHeight,
         0.001,
-        2000
+        1e7
     );
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(container.clientWidth, container.clientHeight);
     container.appendChild(renderer.domElement);
+    currentRenderer = renderer;
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
     controls.rotateSpeed = 0.6;
     controls.zoomSpeed = 1.2;
-    controls.minDistance = 0.05;
-    controls.maxDistance = 500;
+    controls.minDistance = 0.01;
+    controls.maxDistance = 1e6;
 
-    let animFrameId;
     function animate() {
-        animFrameId = requestAnimationFrame(animate);
+        currentAnimFrame = requestAnimationFrame(animate);
         controls.update();
         renderer.render(scene, camera);
     }
@@ -49,6 +63,7 @@ export function initViewer(containerId, plyUrl) {
         renderer.setSize(container.clientWidth, container.clientHeight);
     };
     window.addEventListener('resize', onResize);
+    currentResizeHandler = onResize;
 
     return new Promise((resolve, reject) => {
         const loader = new PLYLoader();
@@ -58,18 +73,8 @@ export function initViewer(containerId, plyUrl) {
             (geometry) => {
                 geometry.computeBoundingBox();
 
-                const material = new THREE.PointsMaterial({
-                    size: 0.025,
-                    vertexColors: geometry.hasAttribute('color'),
-                    color: geometry.hasAttribute('color') ? 0xffffff : 0x4fffb0,
-                    sizeAttenuation: true,
-                });
-
-                const points = new THREE.Points(geometry, material);
-                scene.add(points);
-
                 const pos = geometry.attributes.position.array;
-                const n   = pos.length / 3;
+                const n = pos.length / 3;
 
                 const xs = [], ys = [], zs = [];
                 for (let i = 0; i < n; i++) {
@@ -95,6 +100,18 @@ export function initViewer(containerId, plyUrl) {
 
                 const span = Math.max(x95 - x5, y95 - y5, z95 - z5) || 1;
 
+                const material = new THREE.PointsMaterial({
+                    size: span * 0.008,
+                    vertexColors: geometry.hasAttribute('color'),
+                    color: geometry.hasAttribute('color') ? 0xffffff : 0x4fffb0,
+                    sizeAttenuation: true,
+                });
+
+                const points = new THREE.Points(geometry, material);
+                scene.add(points);
+
+                scene.add(new THREE.AxesHelper(span * 0.15));
+
                 controls.target.copy(center);
                 camera.position.set(
                     center.x,
@@ -103,14 +120,13 @@ export function initViewer(containerId, plyUrl) {
                 );
                 controls.update();
 
+                if (emptyEl) emptyEl.style.display = 'none';
+
                 resolve();
             },
             undefined,
             (error) => {
                 console.error('[pointCloudViewer] Error al cargar PLY:', error);
-                cancelAnimationFrame(animFrameId);
-                window.removeEventListener('resize', onResize);
-                renderer.dispose();
                 reject(error);
             }
         );
