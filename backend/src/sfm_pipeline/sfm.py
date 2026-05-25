@@ -29,7 +29,7 @@ from sfm_pipeline.utils import (
 )
 
 # =========================================================
-# CONFIG
+# CONFIG  (defaults — sobreescribibles desde run_pipeline)
 # =========================================================
 
 WINDOW = 20
@@ -203,7 +203,22 @@ def run_pipeline(
     ransac_threshold: float = 1.0,
     min_matches: int = 8,
     log_file: str | None = "auto",
+    n_features: int = 4000,
+    window: int | None = None,
+    iqr_factor: float | None = None,
+    max_reproj_error: float | None = None,
+    min_parallax_deg: float | None = None,
 ):
+    global WINDOW, _IQR_FACTOR, _MAX_REPROJ_ERROR, _MIN_PARALLAX_DEG
+
+    if window is not None:
+        WINDOW = window
+    if iqr_factor is not None:
+        _IQR_FACTOR = iqr_factor
+    if max_reproj_error is not None:
+        _MAX_REPROJ_ERROR = max_reproj_error
+    if min_parallax_deg is not None:
+        _MIN_PARALLAX_DEG = min_parallax_deg
 
     t_total = time.perf_counter()
 
@@ -240,25 +255,20 @@ def run_pipeline(
     # =====================================================
     # RESIZE CONFIG
     # =====================================================
-    # Con imágenes 6000×4000 en un contenedor de 4 GB,
-    # SIFT sin límite explota la RAM. Redimensionamos a
-    # MAX_DIM px en el lado mayor y escalamos K en consecuencia
-    # para que toda la geometría siga siendo coherente.
+
     MAX_DIM = 1600
 
-    # Calcular escala real usando la primera imagen
     _probe = preprocess.load_image(image_paths[0], grayscale=True)
     _h, _w = _probe.shape[:2]
     del _probe
     _scale = min(1.0, MAX_DIM / max(_h, _w))
 
     if _scale < 1.0:
-        # Escalar K: fx, fy, cx, cy × scale; fila 2 queda [0,0,1]
         k_matrix = k_matrix.copy()
-        k_matrix[0, 0] *= _scale   # fx
-        k_matrix[1, 1] *= _scale   # fy
-        k_matrix[0, 2] *= _scale   # cx
-        k_matrix[1, 2] *= _scale   # cy
+        k_matrix[0, 0] *= _scale
+        k_matrix[1, 1] *= _scale
+        k_matrix[0, 2] *= _scale
+        k_matrix[1, 2] *= _scale
         log.info(
             "\tRedimensionando imágenes a %.0f%% (MAX_DIM=%d)",
             _scale * 100,
@@ -274,8 +284,6 @@ def run_pipeline(
         log.info("\tImágenes dentro del límite — sin redimensionar")
 
     def _load_gray_resized(path: Path) -> np.ndarray:
-        """Cargar, convertir a gris y redimensionar si es necesario.
-        Libera la imagen BGR antes de retornar para minimizar pico de RAM."""
         img = preprocess.load_image(path)
         gray = preprocess.to_grayscale(img)
         del img
@@ -292,7 +300,6 @@ def run_pipeline(
     log.section("FEATURES")
 
     kp_arrays = []
-
     desc_arrays = []
 
     for idx, path in enumerate(image_paths):
@@ -302,14 +309,13 @@ def run_pipeline(
         if detector == "orb":
             kps, des = features.detect_orb(gray)
         else:
-            kps, des = features.detect_sift(gray, n_features=4000)
+            kps, des = features.detect_sift(gray, n_features=n_features)
 
-        del gray  # liberar inmediatamente — solo guardamos kps y des
+        del gray
 
         pts = features.keypoints_to_array(kps)
 
         kp_arrays.append(pts)
-
         desc_arrays.append(des)
 
         log.info("\tImagen %d -> %d keypoints", idx, len(pts))
@@ -369,9 +375,7 @@ def run_pipeline(
     sel = mask_f.ravel() == 1
 
     pts_a_in = pts_a_all[sel]
-
     pts_b_in = pts_b_all[sel]
-
     pair0_in = matches_dict[init_pair][sel]
 
     e_mat = fundamental_to_essential(
@@ -395,11 +399,9 @@ def run_pipeline(
     log.section("TRIANGULATION")
 
     r0 = np.eye(3)
-
     t0_vec = np.zeros((3, 1))
 
     p0 = build_projection_matrix(k_matrix, r0, t0_vec)
-
     p1 = build_projection_matrix(k_matrix, r_init, t_init)
 
     pts3d_raw, valid_tri = triangulation.triangulate_points(
@@ -410,7 +412,6 @@ def run_pipeline(
     )
 
     pts3d = []
-
     pair_valid = []
 
     for idx, valid in enumerate(valid_tri):
@@ -423,39 +424,18 @@ def run_pipeline(
         if not _is_point_valid(pt3d):
             continue
 
-        angle = compute_parallax_angle(
-            pts_a_in[idx],
-            pts_b_in[idx],
-            k_matrix,
-        )
+        angle = compute_parallax_angle(pts_a_in[idx], pts_b_in[idx], k_matrix)
 
         if angle < _MIN_PARALLAX_DEG:
             continue
 
-        err1 = reprojection_error(
-            pt3d,
-            pts_a_in[idx],
-            k_matrix,
-            r0,
-            t0_vec,
-        )
+        err1 = reprojection_error(pt3d, pts_a_in[idx], k_matrix, r0, t0_vec)
+        err2 = reprojection_error(pt3d, pts_b_in[idx], k_matrix, r_init, t_init)
 
-        err2 = reprojection_error(
-            pt3d,
-            pts_b_in[idx],
-            k_matrix,
-            r_init,
-            t_init,
-        )
-
-        if err1 > _MAX_REPROJ_ERROR:
-            continue
-
-        if err2 > _MAX_REPROJ_ERROR:
+        if err1 > _MAX_REPROJ_ERROR or err2 > _MAX_REPROJ_ERROR:
             continue
 
         pts3d.append(pt3d)
-
         pair_valid.append(pair0_in[idx])
 
     pts3d = np.array(pts3d)
@@ -470,19 +450,14 @@ def run_pipeline(
     # =====================================================
 
     camera_rs = [None] * n_imgs
-
     camera_ts = [None] * n_imgs
 
     camera_rs[cam_a] = r0
-
     camera_ts[cam_a] = t0_vec
-
     camera_rs[cam_b] = r_init
-
     camera_ts[cam_b] = t_init
 
     cloud_pts = list(pts3d)
-
     kp_to_cloud = {}
 
     for idx, (ka, kb) in enumerate(pair_valid):
@@ -497,10 +472,6 @@ def run_pipeline(
 
     pnp_ratios = []
 
-    # ----------------------------------------------------------
-    # Construir cola BFS: expandir desde {cam_a, cam_b} hacia
-    # los vecinos con más matches primero, luego el resto.
-    # ----------------------------------------------------------
     from collections import deque
 
     _MAX_RETRIES = 3
@@ -508,8 +479,7 @@ def run_pipeline(
 
     registered = {cam_a, cam_b}
 
-    # Vecinos directos del seed ordenados por nº de matches (desc)
-    seed_neighbors: list[tuple[int, int]] = []  # (n_matches, cam_id)
+    seed_neighbors: list[tuple[int, int]] = []
     for (a, b) in matches_dict:
         if a in registered and b not in registered:
             seed_neighbors.append((len(matches_dict[(a, b)]), b))
@@ -521,8 +491,6 @@ def run_pipeline(
     visited: set[int] = set(registered)
     queue: deque[int] = deque(nb for _, nb in seed_neighbors)
 
-    # Agregar el resto de imágenes al final por si hay componentes
-    # desconectadas del seed
     for i in range(n_imgs):
         if i not in visited and i not in queue:
             queue.append(i)
@@ -538,18 +506,13 @@ def run_pipeline(
             visited.add(i)
             continue
 
-        # --------------------------------------------------
-        # Recolectar correspondencias 3D-2D para PnP
-        # Buscar en ambas direcciones del par (j,i) y (i,j)
-        # --------------------------------------------------
         pts3d_pnp = []
         pts2d_pnp = []
         used: set[int] = set()
 
         for (a, b) in matches_dict:
-            # Determinar si este par conecta una cámara registrada con i
             if a == i and camera_rs[b] is not None:
-                j, flip = b, True   # matches guardados como (b→i), índices invertidos
+                j, flip = b, True
             elif b == i and camera_rs[a] is not None:
                 j, flip = a, False
             else:
@@ -558,8 +521,6 @@ def run_pipeline(
             pair = matches_dict[(a, b)]
 
             for row in pair:
-                # flip=False → a=j, b=i → row[0]=kj, row[1]=ki
-                # flip=True  → a=i, b=j → row[0]=ki, row[1]=kj
                 if flip:
                     kj, ki = int(row[1]), int(row[0])
                 else:
@@ -567,10 +528,7 @@ def run_pipeline(
 
                 cloud_idx = kp_to_cloud.get((j, kj))
 
-                if cloud_idx is None:
-                    continue
-
-                if cloud_idx in used:
+                if cloud_idx is None or cloud_idx in used:
                     continue
 
                 pt3d = cloud_pts[cloud_idx]
@@ -583,11 +541,10 @@ def run_pipeline(
                 used.add(cloud_idx)
 
         if len(pts3d_pnp) < min_matches:
-            # Reintentar más tarde (hasta _MAX_RETRIES veces)
             retries = retry_count.get(i, 0)
             if retries < _MAX_RETRIES:
                 retry_count[i] = retries + 1
-                queue.append(i)   # volver a encolar al final
+                queue.append(i)
             else:
                 log.warn("\tImagen %d: insuficientes corr (%d pts3d) — descartada", i, len(pts3d_pnp))
                 visited.add(i)
@@ -601,7 +558,7 @@ def run_pipeline(
             pts2d_pnp,
             k_matrix,
             None,
-            reprojectionError=2.0,
+            reprojectionError=4.0,
             confidence=0.999,
             iterationsCount=5000,
         )
@@ -627,7 +584,6 @@ def run_pipeline(
 
         log.info("\tCam %d registrada -> ratio %.2f (%d/%d corr)", i, ratio, len(inliers), len(pts3d_pnp))
 
-        # Encolar vecinos de i con prioridad (más matches primero)
         new_neighbors: list[tuple[int, int]] = []
         for (a, b) in matches_dict:
             if a == i and b not in visited:
@@ -638,14 +594,12 @@ def run_pipeline(
         new_neighbors.sort(reverse=True)
         for _, nb in new_neighbors:
             if nb not in visited:
-                queue.appendleft(nb)  # alta prioridad: expandir el frente
+                queue.appendleft(nb)
 
         # =============================================
-        # TRIANGULATE NEW  (contra la cámara registrada
-        # con más matches compartidos con i)
+        # TRIANGULATE NEW
         # =============================================
 
-        # Elegir el mejor par registrado para triangular
         best_ref: int | None = None
         best_ref_matches = 0
         for (a, b) in matches_dict:
@@ -661,7 +615,6 @@ def run_pipeline(
         if best_ref is None:
             continue
 
-        # Obtener el par en el orden correcto almacenado en matches_dict
         if (best_ref, i) in matches_dict:
             pair_key = (best_ref, i)
             ref_is_a = True
@@ -673,17 +626,8 @@ def run_pipeline(
 
         tri_pairs = matches_dict[pair_key]
 
-        p_ref = build_projection_matrix(
-            k_matrix,
-            camera_rs[best_ref],
-            camera_ts[best_ref],
-        )
-
-        p_curr = build_projection_matrix(
-            k_matrix,
-            camera_rs[i],
-            camera_ts[i],
-        )
+        p_ref = build_projection_matrix(k_matrix, camera_rs[best_ref], camera_ts[best_ref])
+        p_curr = build_projection_matrix(k_matrix, camera_rs[i], camera_ts[i])
 
         pts_ref_list = []
         pts_curr_list = []
@@ -729,35 +673,15 @@ def run_pipeline(
             if not _is_point_valid(pt3d):
                 continue
 
-            angle = compute_parallax_angle(
-                pts_ref_arr[idx],
-                pts_curr_arr[idx],
-                k_matrix,
-            )
+            angle = compute_parallax_angle(pts_ref_arr[idx], pts_curr_arr[idx], k_matrix)
 
             if angle < _MIN_PARALLAX_DEG:
                 continue
 
-            err1 = reprojection_error(
-                pt3d,
-                pts_ref_arr[idx],
-                k_matrix,
-                camera_rs[best_ref],
-                camera_ts[best_ref],
-            )
+            err1 = reprojection_error(pt3d, pts_ref_arr[idx], k_matrix, camera_rs[best_ref], camera_ts[best_ref])
+            err2 = reprojection_error(pt3d, pts_curr_arr[idx], k_matrix, camera_rs[i], camera_ts[i])
 
-            err2 = reprojection_error(
-                pt3d,
-                pts_curr_arr[idx],
-                k_matrix,
-                camera_rs[i],
-                camera_ts[i],
-            )
-
-            if err1 > _MAX_REPROJ_ERROR:
-                continue
-
-            if err2 > _MAX_REPROJ_ERROR:
+            if err1 > _MAX_REPROJ_ERROR or err2 > _MAX_REPROJ_ERROR:
                 continue
 
             cloud_idx = len(cloud_pts)
@@ -778,32 +702,20 @@ def run_pipeline(
     pts3d_all = np.array(cloud_pts)
 
     finite_mask = np.all(np.isfinite(pts3d_all), axis=1)
-
-    dist_mask = (
-        np.linalg.norm(pts3d_all, axis=1)
-        < _MAX_POINT_DIST
-    )
+    dist_mask = np.linalg.norm(pts3d_all, axis=1) < _MAX_POINT_DIST
 
     pts3d_all = pts3d_all[finite_mask & dist_mask]
 
     if len(pts3d_all) > 0:
 
         q25 = np.percentile(pts3d_all, 25, axis=0)
-
         q75 = np.percentile(pts3d_all, 75, axis=0)
-
         iqr = q75 - q25
-
         iqr = np.where(iqr < 1e-9, 1.0, iqr)
 
         mask = np.all(
-            (
-                pts3d_all >= q25 - _IQR_FACTOR * iqr
-            )
-            &
-            (
-                pts3d_all <= q75 + _IQR_FACTOR * iqr
-            ),
+            (pts3d_all >= q25 - _IQR_FACTOR * iqr)
+            & (pts3d_all <= q75 + _IQR_FACTOR * iqr),
             axis=1,
         )
 
@@ -821,7 +733,6 @@ def run_pipeline(
             continue
 
         r = camera_rs[cam_idx]
-
         t = camera_ts[cam_idx]
 
         for (img_id, kp_id), cloud_idx in kp_to_cloud.items():
@@ -833,31 +744,19 @@ def run_pipeline(
                 continue
 
             pt3d = cloud_pts[cloud_idx]
-
             pt2d = kp_arrays[img_id][kp_id]
 
-            err = reprojection_error(
-                pt3d,
-                pt2d,
-                k_matrix,
-                r,
-                t,
-            )
+            err = reprojection_error(pt3d, pt2d, k_matrix, r, t)
 
             if np.isfinite(err):
                 all_errors.append(err)
 
     rep_mean = float(np.mean(all_errors))
-
     rep_median = float(np.median(all_errors))
 
     valid_cams = sum(r is not None for r in camera_rs)
 
-    mean_ratio = (
-        float(np.mean(pnp_ratios))
-        if pnp_ratios
-        else 0.0
-    )
+    mean_ratio = float(np.mean(pnp_ratios)) if pnp_ratios else 0.0
 
     result = {
         "dataset": dataset_name,
@@ -874,25 +773,15 @@ def run_pipeline(
     # =====================================================
 
     ply_path = out_dir / "cloud.ply"
-
     metrics_path = out_dir / "metrics.json"
 
     export.write_ply(str(ply_path), pts3d_all)
-
-    metrics.write_metrics_json(
-        str(metrics_path),
-        result,
-    )
+    metrics.write_metrics_json(str(metrics_path), result)
 
     log.summary({
-        "Imagenes registradas":
-            (valid_cams, valid_cams >= 2),
-
-        "Puntos 3D":
-            (len(pts3d_all), len(pts3d_all) > 100),
-
-        "Reprojection error":
-            (rep_mean, rep_mean < 5.0),
+        "Imagenes registradas": (valid_cams, valid_cams >= 2),
+        "Puntos 3D":            (len(pts3d_all), len(pts3d_all) > 100),
+        "Reprojection error":   (rep_mean, rep_mean < 5.0),
     })
 
     return result

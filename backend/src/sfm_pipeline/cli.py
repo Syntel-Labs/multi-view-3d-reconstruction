@@ -51,6 +51,36 @@ def main() -> None:
         default=8,
         help="Minimo de matches validos por par de imagenes (default: 8).",
     )
+    parser.add_argument(
+        "--window",
+        type=int,
+        default=None,
+        help="Ventana de matching entre imágenes (default: valor en sfm.py).",
+    )
+    parser.add_argument(
+        "--iqr-factor",
+        type=float,
+        default=None,
+        help="Factor IQR para filtro de outliers en la nube (default: valor en sfm.py).",
+    )
+    parser.add_argument(
+        "--max-reproj-error",
+        type=float,
+        default=None,
+        help="Error de reproyección máximo en px (default: valor en sfm.py).",
+    )
+    parser.add_argument(
+        "--min-parallax",
+        type=float,
+        default=None,
+        help="Paralaje mínimo en grados para aceptar un punto 3D (default: valor en sfm.py).",
+    )
+    parser.add_argument(
+        "--n-features",
+        type=int,
+        default=None,
+        help="Número de keypoints SIFT por imagen (default: 4000).",
+    )
     args = parser.parse_args()
 
     from sfm_pipeline import sfm
@@ -74,6 +104,11 @@ def main() -> None:
             lowe_ratio=args.lowe_ratio,
             ransac_threshold=args.ransac_threshold,
             min_matches=args.min_matches,
+            n_features=args.n_features or 4000,
+            window=args.window,
+            iqr_factor=args.iqr_factor,
+            max_reproj_error=args.max_reproj_error,
+            min_parallax_deg=args.min_parallax,
         )
     except (ValueError, RuntimeError) as exc:
         print(f"ERROR de validacion: {exc}", file=sys.stderr)
